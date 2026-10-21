@@ -1,0 +1,55 @@
+APP_NAME = Labserver Git
+RUN_USER = git
+RUN_MODE = prod
+WORK_PATH = /var/lib/forgejo
+
+[server]
+PROTOCOL = http
+DOMAIN = git.labserver.internal
+ROOT_URL = http://git.labserver.internal/
+HTTP_ADDR = 0.0.0.0
+HTTP_PORT = 3000
+DISABLE_SSH = false
+START_SSH_SERVER = true
+SSH_DOMAIN = git.labserver.internal
+SSH_PORT = 2222
+SSH_LISTEN_PORT = 2222
+SSH_LISTEN_HOST = 0.0.0.0
+LFS_START_SERVER = true
+LFS_JWT_SECRET = @LFS_JWT_SECRET@
+OFFLINE_MODE = true
+
+[database]
+DB_TYPE = sqlite3
+PATH = /var/lib/forgejo/data/forgejo.db
+
+[repository]
+ROOT = /var/lib/forgejo/repositories
+DEFAULT_BRANCH = main
+
+[security]
+INSTALL_LOCK = true
+SECRET_KEY = @SECRET_KEY@
+INTERNAL_TOKEN = @INTERNAL_TOKEN@
+
+[oauth2]
+JWT_SECRET = @OAUTH_JWT_SECRET@
+
+[service]
+DISABLE_REGISTRATION = true
+REQUIRE_SIGNIN_VIEW = true
+DEFAULT_KEEP_EMAIL_PRIVATE = true
+ENABLE_NOTIFY_MAIL = false
+
+[session]
+COOKIE_SECURE = false
+
+[mailer]
+ENABLED = false
+
+[log]
+MODE = console
+LEVEL = info
+
+[other]
+SHOW_FOOTER_VERSION = false

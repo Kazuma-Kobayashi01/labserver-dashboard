@@ -1,0 +1,13 @@
+services:
+  wg-hub:
+    build: .
+    image: local/wg-hub:1
+    container_name: wg-hub
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    ports:
+      - "51820:51820/udp"
+    volumes:
+      - ./config:/config:ro

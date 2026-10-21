@@ -1,0 +1,11 @@
+[Unit]
+Description=Export Hermes token usage for the dashboard
+
+[Service]
+Type=oneshot
+User=YOUR_USER
+ExecStart=/usr/bin/python3 /usr/local/bin/hermes-usage-export
+Environment=HERMES_USAGE_FILE=/var/lib/hermes-usage-export/usage.json
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full

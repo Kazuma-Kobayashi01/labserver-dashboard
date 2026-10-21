@@ -1,0 +1,121 @@
+#!/bin/bash
+# mbk - reach the home server (your home server): SSH and its web panels.
+PORT=1081                              # local SOCKS port used for web access
+CDP=9333                               # loopback-only Chrome debug port, used to notice when the pages are closed
+STATE="$HOME/.mbk"
+PROFILE="$HOME/.labserver-chrome"      # separate Chrome profile; only this one uses the tunnel
+SELF="$0"
+
+usage() {
+  cat <<'USAGE'
+mbk - reach the home server (your home server)
+
+Usage:
+  mbk -l, --local  [command ...]   SSH over the home network
+  mbk -r, --remote [command ...]   SSH through the public relay
+  mbk -w, --web                    open the home web panels in a separate Chrome window (through the relay)
+  mbk -l -w                        same, but through the home network
+  mbk -s, --stop                   stop web access now
+  mbk -h, --help                   show this help
+
+Web access runs in the background and stops by itself, together with its Chrome window,
+once you close all the pages. Panels: labserver.internal, incus., git., nextcloud., hermes., mihomo. (.labserver.internal)
+Examples:  mbk -r            mbk -l uptime            mbk -w
+USAGE
+}
+
+log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$STATE/web.log"; }
+
+# ---------------------------------------------------------------- web watcher (runs detached)
+chrome_main_pid() {     # exact match on the executable path, never on arbitrary command-line text
+  ps -axo pid=,command= | awk -v flag="--remote-debugging-port=$CDP" '
+    $2 ~ /^\/Applications\/Google/ && index($0, "/Contents/MacOS/Google Chrome ") && index($0, flag) && !index($0, "--type=") { print $1; exit }'
+}
+page_count() {
+  curl -s -m 2 "http://127.0.0.1:$CDP/json/list" 2>/dev/null \
+    | python3 -c 'import sys,json; print(sum(1 for t in json.load(sys.stdin) if t.get("type")=="page"))' 2>/dev/null
+}
+WATCH_TUN=""
+web_watch() {          # internal: $1 = ssh target
+  local target=$1 seen=0 empty=0 wait=0 n
+  echo $$ >"$STATE/web.pid"; log "watcher started for $target"
+  start_tunnel() {
+    ssh -N -D "127.0.0.1:$PORT" -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+        -o ConnectTimeout=15 -o BatchMode=yes "$target" </dev/null >>"$STATE/web.log" 2>&1 &
+    WATCH_TUN=$!
+  }
+  finish() {
+    trap - TERM INT HUP EXIT
+    [ -n "$WATCH_TUN" ] && kill "$WATCH_TUN" 2>/dev/null
+    local cp; cp=$(chrome_main_pid); [ -n "$cp" ] && kill "$cp" 2>/dev/null
+    rm -f "$STATE/web.pid"; log "stopped (tunnel and Chrome closed)"; exit 0
+  }
+  trap finish TERM INT HUP EXIT
+  start_tunnel
+  while true; do
+    sleep 2
+    kill -0 "$WATCH_TUN" 2>/dev/null || { log "tunnel dropped, reconnecting"; sleep 3; start_tunnel; }
+    n=$(page_count)
+    if [ -z "$n" ]; then                      # Chrome not answering
+      [ $seen -eq 1 ] && { log "Chrome is gone"; break; }
+      wait=$((wait+1)); [ $wait -gt 20 ] && { log "Chrome never started"; break; }
+      continue
+    fi
+    if [ "$n" -ge 1 ]; then seen=1; empty=0; elif [ $seen -eq 1 ]; then empty=$((empty+1)); fi
+    [ $empty -ge 3 ] && { log "all pages closed"; break; }
+  done
+  finish
+}
+
+web_running() { [ -f "$STATE/web.pid" ] && kill -0 "$(cat "$STATE/web.pid")" 2>/dev/null; }
+
+web_stop() {
+  if web_running; then kill "$(cat "$STATE/web.pid")"; sleep 1.5; echo "web access stopped"; else echo "web access is not running"; fi
+}
+
+web_start() {          # $1 = ssh target
+  local target=$1 i extra=()
+  mkdir -p "$STATE"
+  if web_running; then
+    echo "web access already running - opening another window"
+  else
+    nohup bash "$SELF" __web_watch "$target" >>"$STATE/web.log" 2>&1 </dev/null &
+    disown 2>/dev/null
+    for i in $(seq 1 40); do nc -z 127.0.0.1 "$PORT" 2>/dev/null && break; sleep 0.5; done
+    if ! nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
+      echo "mbk: could not open the tunnel via '$target' (see $STATE/web.log)"; web_stop >/dev/null 2>&1; exit 1
+    fi
+  fi
+  [ -n "$MBK_HEADLESS" ] && extra=(--headless=new)
+  open -na "Google Chrome" --args --user-data-dir="$PROFILE" --proxy-server="socks5://127.0.0.1:$PORT" \
+       --remote-debugging-port="$CDP" --no-first-run --no-default-browser-check "${extra[@]}" "http://labserver.internal/"
+  echo "Home panels opening in a separate Chrome window (via $target)."
+  echo "Close all its pages and the tunnel shuts down by itself.  Stop now: mbk --stop"
+}
+
+# ---------------------------------------------------------------- arguments
+if [ "$1" = "__web_watch" ]; then web_watch "$2"; exit 0; fi
+[ $# -eq 0 ] && { usage; exit 0; }
+
+where=""; web=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -l|--local)  where=local ;;
+    -r|--remote) where=remote ;;
+    -w|--web)    web=1 ;;
+    -s|--stop)   web_stop; exit 0 ;;
+    -h|--help)   usage; exit 0 ;;
+    --)          shift; break ;;
+    *)           break ;;
+  esac
+  shift
+done
+
+if [ $web -eq 1 ]; then
+  [ $# -gt 0 ] && { echo "mbk: -w takes no command"; exit 2; }
+  [ "$where" = local ] && web_start home || web_start home-away
+  exit 0
+fi
+
+if [ -z "$where" ]; then echo "mbk: choose -l (local) or -r (remote), or -w (web)"; echo; usage; exit 2; fi
+[ "$where" = local ] && exec ssh home "$@" || exec ssh home-away "$@"

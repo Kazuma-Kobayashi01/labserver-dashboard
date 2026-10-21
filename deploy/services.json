@@ -1,0 +1,88 @@
+[
+  {
+    "id": "incus",
+    "name": "Incus",
+    "description": "Container and VM manager API",
+    "kind": "tcp",
+    "target": "127.0.0.1:8443",
+    "icon": "cube-outline"
+  },
+  {
+    "id": "incus-panel",
+    "name": "Incus Panel",
+    "description": "Web UI for Incus",
+    "kind": "http",
+    "target": "http://127.0.0.1:80/",
+    "host": "incus.labserver.internal",
+    "url": "http://incus.labserver.internal",
+    "icon": "view-dashboard-outline"
+  },
+  {
+    "id": "nginx",
+    "name": "Nginx",
+    "description": "Web gateway",
+    "kind": "systemd",
+    "target": "nginx.service",
+    "icon": "router-network"
+  },
+  {
+    "id": "nextcloud",
+    "name": "Nextcloud",
+    "description": "Files and sync, instance nextcloud",
+    "kind": "incus",
+    "target": "nextcloud",
+    "url": "http://nextcloud.labserver.internal",
+    "icon": "cloud-outline"
+  },
+  {
+    "id": "forgejo",
+    "name": "Forgejo",
+    "description": "Self-hosted Git, container forgejo",
+    "kind": "http",
+    "target": "http://10.0.0.20:3000/api/healthz",
+    "url": "http://git.labserver.internal",
+    "icon": "git"
+  },
+  {
+    "id": "hermes",
+    "name": "Hermes Agent",
+    "description": "AI agent web dashboard (login required)",
+    "kind": "http",
+    "target": "http://127.0.0.1:9119/api/status",
+    "url": "http://hermes.labserver.internal",
+    "icon": "robot"
+  },
+  {
+    "id": "mihomo",
+    "name": "Mihomo",
+    "description": "Network proxy (TUN)",
+    "kind": "systemd",
+    "target": "mihomo.service",
+    "icon": "shield-outline",
+    "url": "http://mihomo.labserver.internal"
+  },
+  {
+    "id": "samba",
+    "name": "Samba",
+    "description": "SMB file sharing",
+    "kind": "systemd",
+    "target": "smbd.service",
+    "icon": "folder-network-outline"
+  },
+  {
+    "id": "docker",
+    "name": "Docker",
+    "description": "Container runtime",
+    "kind": "systemd",
+    "target": "docker.service",
+    "icon": "docker"
+  },
+  {
+    "id": "ssh",
+    "name": "SSH",
+    "description": "Remote shell",
+    "kind": "systemd",
+    "target": "ssh.service",
+    "icon": "console-network-outline"
+  }
+]

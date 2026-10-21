@@ -1,0 +1,23 @@
+[Unit]
+Description=Hermes Agent web dashboard (loopback only, behind nginx + basic auth)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=YOUR_USER
+Group=YOUR_USER
+WorkingDirectory=/home/YOUR_USER
+Environment=HOME=/home/YOUR_USER
+Environment=PATH=/home/YOUR_USER/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/YOUR_USER/.local/bin/hermes dashboard --host 127.0.0.1 --port 9119 --no-open --skip-build
+Restart=on-failure
+RestartSec=5
+# The agent behind this page can run tools. Keep it from escalating via sudo/setuid.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target

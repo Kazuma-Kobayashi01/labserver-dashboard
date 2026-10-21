@@ -1,0 +1,25 @@
+[Unit]
+Description=Labserver Dashboard API
+After=network-online.target incus.service
+Wants=network-online.target
+
+[Service]
+User=labserver
+Group=labserver
+EnvironmentFile=/etc/labserver-dashboard/env
+ExecStart=/opt/labserver-dashboard/bin/labserver-dashboard
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+StateDirectory=labserver-dashboard
+StateDirectoryMode=0750
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

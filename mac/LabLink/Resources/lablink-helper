@@ -1,0 +1,60 @@
+#!/bin/bash
+# LabLink privileged helper. Runs as root only when the user approves the macOS admin prompt.
+# Usage: lablink-helper up <wg-quick style conf> | down
+# When installed at /usr/local/libexec/lablink (root-owned, sudoers allows exactly "up" and "down"),
+# the config path argument is ignored and /usr/local/etc/lablink/lablink.conf is always used.
+# Uses wg / wireguard-go shipped next to this script (inside the app bundle) and system tools only.
+DIR="$(cd "$(dirname "$0")" && pwd)"
+RUN=/var/run/lablink
+ADDR=10.77.0.3
+NETS="10.77.0.0/24 10.0.0.0/24"
+HOMEIP=192.168.1.240
+TUNIP=10.0.0.1
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+flush_dns() { dscacheutil -flushcache 2>/dev/null; killall -HUP mDNSResponder 2>/dev/null; return 0; }
+hosts_to() { # $1 current ip, $2 new ip; only touches labserver.internal lines
+  sed -i '' "/labserver\.internal/ s/^$1\([[:space:]]\)/$2\1/" /etc/hosts && flush_dns
+}
+cur_if() { [ -s "$RUN/if" ] && cat "$RUN/if"; }
+is_up() { local i; i=$(cur_if); [ -n "$i" ] && ifconfig "$i" >/dev/null 2>&1 && [ -S "/var/run/wireguard/$i.sock" ]; }
+
+case "${1:-}" in
+  up)
+    if [ "$DIR" = /usr/local/libexec/lablink ]; then CONF=/usr/local/etc/lablink/lablink.conf; else CONF="${2:-}"; fi
+    [ -f "$CONF" ] || { echo "missing config: $CONF"; exit 1; }
+    if is_up; then echo "already-up"; else
+      umask 077
+      mkdir -p "$RUN" /var/run/wireguard
+      rm -f "$RUN/name" "$RUN/if"
+      # wg-quick-only keys are not valid for `wg setconf`
+      grep -vE '^[[:space:]]*(Address|DNS|MTU|Table|PreUp|PostUp|PreDown|PostDown|SaveConfig)[[:space:]]*=' "$CONF" > "$RUN/lablink.wg"
+      WG_TUN_NAME_FILE="$RUN/name" "$DIR/wireguard-go" -f utun >"$RUN/wgo.log" 2>&1 </dev/null &
+      echo $! > "$RUN/pid"
+      for _ in $(seq 1 25); do [ -s "$RUN/name" ] && break; sleep 0.2; done
+      IF=$(cat "$RUN/name" 2>/dev/null)
+      [ -n "$IF" ] || { echo "wireguard-go failed to create interface"; kill "$(cat "$RUN/pid")" 2>/dev/null; rm -f "$RUN/lablink.wg"; exit 1; }
+      echo "$IF" > "$RUN/if"
+      "$DIR/wg" setconf "$IF" "$RUN/lablink.wg" || { echo "wg setconf failed"; kill "$(cat "$RUN/pid")" 2>/dev/null; rm -f "$RUN/lablink.wg"; exit 1; }
+      rm -f "$RUN/lablink.wg"
+      ifconfig "$IF" inet "$ADDR" "$ADDR" alias mtu 1420 up || exit 1
+      for n in $NETS; do route -q -n add -inet "$n" -interface "$IF" >/dev/null 2>&1; done
+    fi
+    # Away from home: point the dashboard names at the tunnel side. At home keep the LAN address.
+    if curl -s -m 1 -H 'Host: labserver.internal' "http://$HOMEIP/api/v1/health" 2>/dev/null | grep -q '"ok":true'; then
+      echo "home-lan-reachable: hosts unchanged"
+    else
+      hosts_to "$HOMEIP" "$TUNIP"
+    fi
+    ;;
+  down)
+    IF=$(cur_if)
+    [ -s "$RUN/pid" ] && kill "$(cat "$RUN/pid")" 2>/dev/null
+    for _ in $(seq 1 20); do { [ -n "$IF" ] && ifconfig "$IF" >/dev/null 2>&1; } || break; sleep 0.2; done
+    [ -n "$IF" ] && rm -f "/var/run/wireguard/$IF.sock"
+    rm -f "$RUN/pid" "$RUN/if" "$RUN/name"
+    hosts_to "$TUNIP" "$HOMEIP"
+    ;;
+  *) echo "usage: lablink-helper up <conf> | down" >&2; exit 2 ;;
+esac
+exit 0

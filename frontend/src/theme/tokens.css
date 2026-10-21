@@ -1,0 +1,151 @@
+/* Design tokens — Multiple theme support */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THEME 1: Retro Warm Paper (Anthropic-inspired) — DEFAULT
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme='light'][data-style='retro'],
+[data-style='retro'] {
+  --bg: #f0eee6;
+  --surface: #faf9f5;
+  --surface-2: #f5f2e9;
+  --ink: #2b2620;
+  --ink-soft: #514a40;
+  --ink-muted: #6b6357;
+  --accent: #d97757;
+  --accent-ink: #fff7f2;
+  --border: #ddd8cc;
+  --ok: #4a7c59;
+  --warn: #b98a2f;
+  --bad: #b4553f;
+
+  --font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --font-body: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --font-mono: 'LM Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  --radius: 8px;
+  --border-w: 1px;
+  --shadow-inset: inset 0 1px 2px rgb(0 0 0 / 0.03);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 40px;
+  --space-6: 56px;
+}
+
+[data-theme='dark'][data-style='retro'],
+[data-style='retro'][data-theme='dark'] {
+  --bg: #1f1d1a;
+  --surface: #262320;
+  --surface-2: #2c2825;
+  --ink: #ede9e1;
+  --ink-soft: #d6cfc3;
+  --ink-muted: #a39b8e;
+  --accent: #e08a6a;
+  --accent-ink: #1f1d1a;
+  --border: #3a352e;
+  --ok: #7fb08a;
+  --warn: #d8ae5f;
+  --bad: #d98070;
+  --shadow-inset: inset 0 1px 2px rgb(0 0 0 / 0.2);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THEME 2: Material Blue
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+[data-style='material-blue'] {
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-2: #f5f5f5;
+  --ink: #1c1b1f;
+  --ink-soft: #49454f;
+  --ink-muted: #79747e;
+  --accent: #1976d2;
+  --accent-ink: #ffffff;
+  --border: #e0e0e0;
+  --ok: #2e7d32;
+  --warn: #ed6c02;
+  --bad: #d32f2f;
+
+  --font-display: 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  --font-body: 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Roboto Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  --radius: 12px;
+  --border-w: 1px;
+  --shadow-inset: none;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 40px;
+  --space-6: 56px;
+}
+
+[data-theme='dark'][data-style='material-blue'] {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #1c2430;
+  --ink: #e6edf3;
+  --ink-soft: #b0bac5;
+  --ink-muted: #7d8590;
+  --accent: #58a6ff;
+  --accent-ink: #0d1117;
+  --border: #30363d;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --bad: #f85149;
+  --shadow-inset: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THEME 3: Material Teal
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+[data-style='material-teal'] {
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-2: #f0f7f7;
+  --ink: #1c1b1f;
+  --ink-soft: #49454f;
+  --ink-muted: #79747e;
+  --accent: #00897b;
+  --accent-ink: #ffffff;
+  --border: #e0e0e0;
+  --ok: #2e7d32;
+  --warn: #ed6c02;
+  --bad: #d32f2f;
+
+  --font-display: 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  --font-body: 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Roboto Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  --radius: 16px;
+  --border-w: 1px;
+  --shadow-inset: none;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 40px;
+  --space-6: 56px;
+}
+
+[data-theme='dark'][data-style='material-teal'] {
+  --bg: #0d1412;
+  --surface: #141e1b;
+  --surface-2: #1a2e28;
+  --ink: #e0f2ef;
+  --ink-soft: #a8c9c2;
+  --ink-muted: #6f9a91;
+  --accent: #4db6ac;
+  --accent-ink: #0d1412;
+  --border: #2a3d37;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --bad: #f85149;
+  --shadow-inset: none;
+}

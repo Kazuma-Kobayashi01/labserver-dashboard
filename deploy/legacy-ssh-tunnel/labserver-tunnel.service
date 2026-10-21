@@ -1,0 +1,19 @@
+[Unit]
+Description=Reverse SSH tunnel to the public relay (remote access to this server)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=YOUR_USER
+ExecStart=/usr/bin/ssh -N -T \
+  -i /home/YOUR_USER/.ssh/id_ed25519_tunnel -o IdentitiesOnly=yes -o BatchMode=yes \
+  -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519 \
+  -o UserKnownHostsFile=/home/YOUR_USER/.ssh/known_hosts \
+  -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -R 127.0.0.1:2222:127.0.0.1:22 tunnel@VPS_IP
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

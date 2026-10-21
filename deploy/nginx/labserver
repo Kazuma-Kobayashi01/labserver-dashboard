@@ -1,0 +1,44 @@
+# Labserver dashboard: static Vue build plus the Gin API on loopback.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name labserver.internal www.labserver.internal _;
+
+    root /opt/labserver-dashboard/web;
+    index index.html;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy same-origin always;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+
+    # Navigation shortcuts: bounce to the dedicated subdomain, no sub-path proxying.
+    location = /incus   { return 302 http://incus.labserver.internal/; }
+    location = /incus/  { return 302 http://incus.labserver.internal/; }
+    location = /git     { return 302 http://git.labserver.internal/; }
+    location = /git/    { return 302 http://git.labserver.internal/; }
+    location = /hermes  { return 302 http://hermes.labserver.internal/; }
+    location = /hermes/ { return 302 http://hermes.labserver.internal/; }
+    location = /mihomo  { return 302 http://mihomo.labserver.internal/; }
+    location = /mihomo/ { return 302 http://mihomo.labserver.internal/; }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:18080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_read_timeout 15s;
+    }
+
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/ /index.html;
+    }
+}

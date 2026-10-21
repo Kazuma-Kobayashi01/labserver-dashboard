@@ -1,0 +1,14 @@
+# Block direct-IP web access except nginx on :80.
+#   8080  Nextcloud (use http://nextcloud.labserver.internal)
+#   8443  Incus API / UI (use http://incus.labserver.internal)
+#   9090  mihomo controller (use http://mihomo.labserver.internal)
+# Loopback stays open so nginx and the dashboard backend keep working.
+table inet labserver_fw
+delete table inet labserver_fw
+table inet labserver_fw {
+    chain input {
+        type filter hook input priority -10; policy accept;
+        iifname "lo" accept
+        tcp dport { 8080, 8443, 9090 } reject with tcp reset
+    }
+}

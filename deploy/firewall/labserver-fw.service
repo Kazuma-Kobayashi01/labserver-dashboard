@@ -1,0 +1,13 @@
+[Unit]
+Description=Labserver firewall: block direct-IP web ports except 80
+After=network-pre.target
+Before=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/labserver-fw.nft
+ExecStop=/usr/sbin/nft delete table inet labserver_fw
+
+[Install]
+WantedBy=multi-user.target

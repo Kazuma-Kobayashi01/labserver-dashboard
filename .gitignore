@@ -1,0 +1,33 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+# Optional hero image for the home page; add your own (it is not part of this repo)
+frontend/public/wallpaper.jpg
+
+# Backend
+backend/labserver-dashboard
+backend/bin/
+
+# Third-party bundle (see deploy/mihomo-ui/README.md)
+deploy/mihomo-ui/dist/
+
+# macOS app
+mac/LabLink/.build/
+mac/LabLink/build/
+
+# Secrets: never commit these
+*.key
+*.pem
+*.crt
+env
+!deploy/env.example
+deploy/**/config/wg0.conf
+**/wg0.conf
+**/lablink.conf
+**/mac.conf
+subscription.url

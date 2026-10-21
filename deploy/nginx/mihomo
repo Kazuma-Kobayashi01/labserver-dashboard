@@ -1,0 +1,26 @@
+# MetaCubeXD (static) plus a same-origin proxy to the local mihomo controller.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name mihomo.labserver.internal;
+
+    root /opt/labserver-dashboard/mihomo-ui;
+    index index.html;
+
+    location /_api/ {
+        proxy_pass http://127.0.0.1:9090/;
+        proxy_http_version 1.1;
+        proxy_set_header Host 127.0.0.1:9090;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+
+    location = /config.js { add_header Cache-Control "no-cache"; }
+    location = /sw.js     { add_header Cache-Control "no-cache"; }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
