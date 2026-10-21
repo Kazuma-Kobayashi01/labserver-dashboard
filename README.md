@@ -288,6 +288,39 @@ Check: `docker exec wg-hub wg show` should list a recent handshake for the gatew
 <img src="docs/images/lablink-dark-zh.png" height="360" alt="LabLink dark, Chinese" />
 </div>
 
+### Download (DMG)
+
+Release builds are one DMG per architecture, with `wg` and `wireguard-go` already bundled:
+
+| File | Mac |
+|---|---|
+| `LabLink-<version>-arm64.dmg` | Apple silicon (M1 and later) |
+| `LabLink-<version>-x86_64.dmg` | Intel (not built yet, see below) |
+
+Verify with `shasum -a 256 -c SHA256SUMS`, open the DMG and drag **LabLink** to **Applications**.
+
+The app is ad-hoc signed, **not notarized** (no paid Apple Developer ID), so macOS blocks the first launch of a downloaded
+copy. Either open *System Settings → Privacy & Security* and press **Open Anyway**, or run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/LabLink.app
+```
+
+> **The DMG uses the default addresses from `Config.swift`** (`labserver.internal`, `192.168.1.240`, `10.77.0.x`, ...) and
+> your macOS user name for SSH. If your network differs, build from source as below. Making these editable in the app
+> is on the to-do list.
+
+Build the DMGs yourself:
+
+```bash
+cd mac/LabLink
+./scripts/release.sh                                  # dist/LabLink-<version>-arm64.dmg + SHA256SUMS
+# Intel too (Homebrew has no Intel bottles, so wg / wireguard-go are built from source; wireguard-go needs Go 1.23+):
+ARCH=x86_64 ./scripts/build-tools.sh && ARCHS="arm64 x86_64" ./scripts/release.sh
+```
+
+The Intel build has not been produced or tested yet.
+
 ### Build
 
 ```bash

@@ -31,3 +31,6 @@ deploy/**/config/wg0.conf
 **/lablink.conf
 **/mac.conf
 subscription.url
+
+# Release artifacts
+mac/LabLink/dist/

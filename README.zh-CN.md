@@ -287,6 +287,38 @@ AllowedIPs = 10.77.0.3/32
 <img src="docs/images/lablink-dark-en.png" height="360" alt="LabLink 深色,英文" />
 </div>
 
+### 下载(DMG)
+
+发布版按架构各打一个 DMG,已经内置了 `wg` 和 `wireguard-go`:
+
+| 文件 | 适用的 Mac |
+|---|---|
+| `LabLink-<版本>-arm64.dmg` | Apple 芯片(M1 及以后) |
+| `LabLink-<版本>-x86_64.dmg` | Intel(目前还没有构建,见下) |
+
+用 `shasum -a 256 -c SHA256SUMS` 校验,打开 DMG,把 **LabLink** 拖进 **应用程序**。
+
+应用是 ad-hoc 签名、**没有经过公证**(没有付费的 Apple 开发者账号),所以 macOS 会拦截下载来的副本首次启动。
+可以打开 *系统设置 → 隐私与安全性*,点 **仍要打开**;或者执行:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/LabLink.app
+```
+
+> **DMG 里用的是 `Config.swift` 里的默认地址**(`labserver.internal`、`192.168.1.240`、`10.77.0.x` 等),
+> SSH 用户名取你的 macOS 用户名。如果你的网络不一样,请按下面的方式从源码构建。让这些地址能在应用里直接修改,已在计划中。
+
+自己打 DMG:
+
+```bash
+cd mac/LabLink
+./scripts/release.sh                                  # dist/LabLink-<版本>-arm64.dmg + SHA256SUMS
+# 同时打 Intel(Homebrew 已不再提供 Intel 预编译包,所以 wg / wireguard-go 需要从源码编译;wireguard-go 要 Go 1.23+):
+ARCH=x86_64 ./scripts/build-tools.sh && ARCHS="arm64 x86_64" ./scripts/release.sh
+```
+
+Intel 版目前还没有构建,也没有测试过。
+
 ### 构建
 
 ```bash
