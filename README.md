@@ -342,8 +342,13 @@ The tunnel config is read from `~/.config/lablink/lablink.conf` (the file you ma
    or disconnect is confirmed with Touch ID.
 3. Click a panel (Dashboard, Incus, Mihomo, Git, Nextcloud, Hermes) to open it in your browser, or **SSH** to open Terminal.
    Click an instance to copy its IP.
-4. **⌘ ,** also sets *Appearance* (auto / dark / light) and *Language* (follow system / English / 中文 / 日本語).
+4. **⌘ ,** also sets the *Name* shown at the top, *Notify on connect / disconnect*, *Appearance* (auto / dark / light)
+   and *Language* (follow system / English / 中文 / 日本語).
    The window can be resized within limits; it has no full-screen mode by design.
+5. The frosted header shows the state at a glance: **green** at home, **grey** away and not connected, **red** while the
+   tunnel is up. At home, **Connect** just tells you there is nothing to connect.
+6. **⌘ W** only closes the window: the app keeps running with an icon in the menu bar (Show / Quit). **Hold ⌘ Q**
+   for about a second to quit. A system notification appears when the tunnel connects or disconnects.
 
 ### What the Touch ID option installs
 
