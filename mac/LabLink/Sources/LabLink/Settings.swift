@@ -63,8 +63,16 @@ enum L10n {
         // footer
         "foot.up": ("WireGuard", "WireGuard", "WireGuard"),
         "foot.down": ("WireGuard is down", "WireGuard 未建立", "WireGuard 未確立"),
+        "set.name": ("Name", "名称", "名前"),
+        "set.notify": ("Notify on connect / disconnect", "连接、断开时发送通知", "接続・切断時に通知"),
+        "notify.connected": ("Connected to your home network", "已连接到家里的网络", "自宅ネットワークに接続しました"),
+        "notify.disconnected": ("Disconnected from your home network", "已断开与家里网络的连接", "自宅ネットワークから切断しました"),
+        "menu.show": ("Show LabLink", "显示 LabLink", "LabLink を表示"),
+        "menu.quit": ("Quit LabLink", "退出 LabLink", "LabLink を終了"),
+        "quit.hold": ("Hold ⌘Q to Quit", "按住 ⌘Q 退出", "⌘Q を長押しして終了"),
         "foot.quit": ("Quit LabLink (the tunnel stays up)", "退出 LabLink(不会断开隧道)", "LabLink を終了(トンネルは維持)"),
         // toasts / prompts
+        "toast.athome": ("You're home: no need to connect", "已在家里,无需连接", "自宅にいるため接続は不要です"),
         "toast.needconn": ("Connect the tunnel or get back home first", "先连接隧道或回到家里", "先にトンネルに接続するか自宅に戻ってください"),
         "toast.copied": ("Copied", "已复制", "コピーしました"),
         "toast.cancelled": ("Cancelled", "已取消", "キャンセルしました"),
@@ -111,11 +119,23 @@ final class AppSettings: ObservableObject {
     @Published var appearance: String { didSet { UserDefaults.standard.set(appearance, forKey: "appearance") } }
     @Published var authMode: String { didSet { UserDefaults.standard.set(authMode, forKey: "authMode") } }
     @Published var language: String { didSet { UserDefaults.standard.set(language, forKey: "language") } }
+    @Published var serverName: String { didSet { UserDefaults.standard.set(serverName, forKey: "serverName") } }
+    @Published var notify: Bool { didSet { UserDefaults.standard.set(notify, forKey: "notify") } }
+
+    static let defaultName = "Labserver"
 
     init() {
         appearance = UserDefaults.standard.string(forKey: "appearance") ?? "auto"
         language = UserDefaults.standard.string(forKey: "language") ?? "system"
         authMode = UserDefaults.standard.string(forKey: "authMode") ?? "password"
+        serverName = UserDefaults.standard.string(forKey: "serverName") ?? Self.defaultName
+        notify = UserDefaults.standard.object(forKey: "notify") as? Bool ?? true
+    }
+
+    /// Name shown in the header and in notifications; falls back to the default when left empty.
+    var displayName: String {
+        let n = serverName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return n.isEmpty ? Self.defaultName : n
     }
 
     var scheme: ColorScheme? {
@@ -135,6 +155,10 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            TextField(L10n.t("set.name"), text: $s.serverName, prompt: Text(AppSettings.defaultName))
+
+            Toggle(L10n.t("set.notify"), isOn: $s.notify)
+
             Picker(L10n.t("set.appearance"), selection: $s.appearance) {
                 Text(L10n.t("set.auto")).tag("auto")
                 Text(L10n.t("set.dark")).tag("dark")
@@ -183,7 +207,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .font(.ui(size: 13))
-        .frame(width: 440, height: 400)
+        .frame(width: 440, height: 480)
         .preferredColorScheme(s.scheme)
     }
 }

@@ -4,8 +4,16 @@ import SwiftUI
 // MARK: - Palette (old-QQ flavoured, light + dark)
 
 private enum Pal {
-    static let blueTop = Color(light: Color(red: 0.12, green: 0.61, blue: 0.94), dark: Color(red: 0.10, green: 0.42, blue: 0.74))
-    static let blueBottom = Color(light: Color(red: 0.36, green: 0.76, blue: 1.0), dark: Color(red: 0.17, green: 0.56, blue: 0.86))
+    // Header themes: green = at home, grey = away and not connected, red = tunnel up
+    static let greenTop = Color(light: Color(red: 0.13, green: 0.68, blue: 0.36), dark: Color(red: 0.09, green: 0.48, blue: 0.26))
+    static let greenBottom = Color(light: Color(red: 0.38, green: 0.84, blue: 0.55), dark: Color(red: 0.15, green: 0.60, blue: 0.35))
+    static let greenAccent = Color(red: 0.13, green: 0.62, blue: 0.33)
+    static let redTop = Color(light: Color(red: 0.90, green: 0.26, blue: 0.26), dark: Color(red: 0.65, green: 0.17, blue: 0.17))
+    static let redBottom = Color(light: Color(red: 1.0, green: 0.46, blue: 0.44), dark: Color(red: 0.78, green: 0.27, blue: 0.26))
+    static let redAccent = Color(red: 0.86, green: 0.24, blue: 0.24)
+    static let grayTop = Color(light: Color(red: 0.50, green: 0.55, blue: 0.62), dark: Color(red: 0.28, green: 0.31, blue: 0.37))
+    static let grayBottom = Color(light: Color(red: 0.70, green: 0.74, blue: 0.80), dark: Color(red: 0.38, green: 0.42, blue: 0.49))
+    static let grayAccent = Color(red: 0.45, green: 0.50, blue: 0.58)
     static let accent = Color(red: 0.12, green: 0.61, blue: 0.94)
     static let ink = Color(light: Color(red: 0.13, green: 0.18, blue: 0.26), dark: Color(red: 0.91, green: 0.93, blue: 0.96))
     static let sub = Color(light: Color(red: 0.45, green: 0.52, blue: 0.62), dark: Color(red: 0.58, green: 0.63, blue: 0.71))
@@ -108,25 +116,43 @@ struct ContentView: View {
 
 // MARK: - Header
 
+/// Blurs whatever is behind the window (needs a non-opaque window, see WindowConfigurator).
+private struct VisualEffectBlur: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let v = NSVisualEffectView()
+        v.material = .sidebar
+        v.blendingMode = .behindWindow
+        v.state = .active
+        return v
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
 private struct Header: View {
     @ObservedObject var m: TunnelModel
     @ObservedObject private var s = AppSettings.shared
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            LinearGradient(colors: [Pal.blueTop, Pal.blueBottom], startPoint: .top, endPoint: .bottom)
+            // Frosted glass: blurred desktop behind the window, tinted by the state colour
+            VisualEffectBlur()
+            LinearGradient(colors: [theme.top, theme.bottom], startPoint: .top, endPoint: .bottom)
+                .opacity(0.68)
+                .animation(.easeOut(duration: 0.3), value: m.phase)
+                .animation(.easeOut(duration: 0.3), value: m.atHome)
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.95))
                         Image(systemName: "point.3.connected.trianglepath.dotted")
-                            .font(.ui(size: 26, weight: .semibold)).foregroundColor(Pal.accent)
+                            .font(.ui(size: 26, weight: .semibold)).foregroundColor(theme.accent)
                     }
                     .frame(width: 58, height: 58)
                     .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Labserver").font(.ui(size: 18, weight: .bold)).foregroundColor(.white)
+                        Text(s.displayName).font(.ui(size: 18, weight: .bold)).foregroundColor(.white)
                         HStack(spacing: 6) {
                             Circle().fill(dot).frame(width: 9, height: 9)
                                 .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1.5))
@@ -143,8 +169,8 @@ private struct Header: View {
                         Text(buttonTitle).font(.ui(size: 13, weight: .semibold))
                     }
                     .frame(maxWidth: .infinity).frame(height: 32)
-                    .foregroundColor(m.phase == .on ? .white : Color(red: 0.12, green: 0.55, blue: 0.90))
-                    .background(Capsule().fill(m.phase == .on ? Pal.orange : Color.white))
+                    .foregroundColor(theme.accent)
+                    .background(Capsule().fill(Color.white))
                     .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
                 }
                 .buttonStyle(.plain)
@@ -162,6 +188,11 @@ private struct Header: View {
     }
 
     private var busy: Bool { m.phase == .connecting || m.phase == .disconnecting }
+    private var theme: (top: Color, bottom: Color, accent: Color) {
+        if m.tunnelUp { return (Pal.redTop, Pal.redBottom, Pal.redAccent) }
+        if m.atHome { return (Pal.greenTop, Pal.greenBottom, Pal.greenAccent) }
+        return (Pal.grayTop, Pal.grayBottom, Pal.grayAccent)
+    }
     private var dot: Color {
         switch m.phase {
         case .on: return Pal.green

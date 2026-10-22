@@ -88,6 +88,7 @@ final class TunnelModel: ObservableObject {
     @Published var touchIDInstalled = false
 
     private var started = false
+    private var lastUp: Bool?
     private var toastTask: Task<Void, Never>?
 
     nonisolated static let installedHelper = "/usr/local/libexec/lablink/lablink-helper"
@@ -127,6 +128,7 @@ final class TunnelModel: ObservableObject {
         touchIDInstalled = await Self.checkInstalled()
         let iface = Self.tunnelInterface()
         let up = iface != nil
+        notifyIfChanged(up: up)
         if phase != .connecting && phase != .disconnecting { phase = up ? .on : .off }
 
         if let iface = iface {
@@ -149,10 +151,18 @@ final class TunnelModel: ObservableObject {
         if let s: SysInfo = await Self.fetch("system", host: host) { sys = s }
     }
 
+    /// Posts a system notification when the tunnel goes up or down (the first refresh only sets the baseline).
+    private func notifyIfChanged(up: Bool) {
+        defer { lastUp = up }
+        guard let prev = lastUp, prev != up, AppSettings.shared.notify else { return }
+        Notifier.post(title: AppSettings.shared.displayName, body: L10n.t(up ? "notify.connected" : "notify.disconnected"))
+    }
+
     // MARK: actions
 
     func connect() async {
         guard phase == .off else { return }
+        if atHome { show(L10n.t("toast.athome")); return }
         phase = .connecting
         let r = await runHelper("up")
         if r.status != 0 {
