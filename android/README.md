@@ -60,9 +60,9 @@ can also be tried on a desktop: `go run ./tunnel/cmd/labtunnel-cli config.json` 
 
 * Plain HTTP is allowed only for the home hosts and the loopback proxy (`res/xml/network_security_config.xml`). If you
   use a different home domain, change it there as well as in **Settings → Advanced**.
-* The logo is a small planet-bot: a flat orb with two slanted pill eyes, an orbit ring and a satellite
-  (`ui/BotAvatar.kt`, `res/drawable/ic_launcher_foreground.xml`). Each bot gets its own orb colour; the eyes blink and the
-  satellite travels round the orbit while the bot is thinking.
+* The logo is a flat orb with two slanted pill eyes (`ui/BotAvatar.kt`, `res/drawable/ic_launcher_foreground.xml`). Each
+  bot gets its own orb colour, and the orb acts out what the bot is doing: thinking, searching, answering
+  (see [DESIGN.md](DESIGN.md)).
 * The debug APK is signed with the local debug key. For a release build create your own keystore (it is git-ignored).
 * Not done yet: a foreground service to keep the tunnel alive in the background, light/dark WebView theming, file
   downloads from panels.

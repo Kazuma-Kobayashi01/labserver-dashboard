@@ -95,6 +95,9 @@ fun ChatScreen(
     var showPicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val botColor = Color(ui.bot.color)
+    // the reply being written right now, if any: drives the orb's mood in the top bar
+    val live = ui.messages.lastOrNull()?.takeIf { ui.streaming && it.role == "assistant" }
+    val liveMood = orbMood(ui.streaming, ui.working, !live?.content.isNullOrBlank())
 
     // newest message at index 0 (the list is reversed), so growing replies stay pinned to the bottom
     LaunchedEffect(ui.messages.size, ui.bot.id) { if (ui.messages.isNotEmpty()) listState.animateScrollToItem(0) }
@@ -125,7 +128,7 @@ fun ChatScreen(
                     Modifier.clip(RoundedCornerShape(50)).clickable { showPicker = true }.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    BotAvatar(28.dp, color = botColor, thinking = ui.streaming)
+                    BotAvatar(28.dp, color = botColor, mood = liveMood, talk = (live?.content?.length ?: 0) / 16, alive = true)
                     Spacer(Modifier.width(8.dp))
                     Text(ui.bot.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp))
                     Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.bots_title), modifier = Modifier.size(20.dp))
@@ -302,7 +305,7 @@ private fun BotReply(m: ChatMessage, bot: Bot, thinking: Boolean, working: Boole
     var showThoughts by rememberSaveable(m.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            BotAvatar(26.dp, color = Color(bot.color), thinking = thinking)
+            BotAvatar(26.dp, color = Color(bot.color), mood = orbMood(thinking, working, m.content.isNotBlank()), talk = m.content.length / 16)
             Text(
                 bot.name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 8.dp),

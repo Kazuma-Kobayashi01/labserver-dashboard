@@ -1,32 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- LabLink planet-bot: a flat gradient orb with two slanted pill eyes, an orbit ring and a satellite.
-     Drawn in a 100-unit box and scaled into the 66 dp safe zone. Same art as ui/BotAvatar.kt (BotHero). -->
+<!-- Lab bot orb: a flat gradient sphere with two slanted pill eyes. Drawn in a 100-unit box and scaled into the
+     66 dp safe zone. Same art as ui/BotAvatar.kt. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
     <group android:translateX="13" android:translateY="13" android:scaleX="0.82" android:scaleY="0.82">
-        <!-- far half of the orbit, behind the orb -->
-        <path android:strokeColor="#80FFB547" android:strokeWidth="2.6" android:strokeLineCap="round"
-            android:pathData="M14,60 A38,11 -14 0 1 86,42" />
-        <!-- orb -->
-        <path android:pathData="M50,50m-26,0a26,26 0,1 1,52 0a26,26 0,1 1,-52 0">
+        <path android:pathData="M50,50m-32,0a32,32 0,1 1,64 0a32,32 0,1 1,-64 0">
             <aapt:attr name="android:fillColor">
-                <gradient android:type="linear" android:startX="32" android:startY="29" android:endX="68" android:endY="73">
+                <gradient android:type="linear" android:startX="27.6" android:startY="24.4" android:endX="72.4" android:endY="78.8">
                     <item android:offset="0" android:color="#8E80FF" />
                     <item android:offset="1" android:color="#3B2DC4" />
                 </gradient>
             </aapt:attr>
         </path>
-        <!-- near half of the orbit, in front, and the satellite -->
-        <path android:strokeColor="#FFB547" android:strokeWidth="2.8" android:strokeLineCap="round"
-            android:pathData="M86,42 A38,11 -14 0 1 14,60" />
-        <path android:fillColor="#FFB547" android:pathData="M80,53.6m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0" />
-        <!-- eyes -->
-        <group android:rotation="10" android:pivotX="42" android:pivotY="46">
-            <path android:fillColor="#FFFFFF" android:pathData="M39,40.5a3,3 0,0 1,6 0L45,51.5a3,3 0,0 1,-6 0Z" />
+        <group android:rotation="10" android:pivotX="40.1" android:pivotY="45.1">
+            <path android:fillColor="#FFFFFF" android:pathData="M36.4,38.25a3.7,3.7 0,0 1,7.4 0L43.8,51.95a3.7,3.7 0,0 1,-7.4 0Z" />
         </group>
-        <group android:rotation="10" android:pivotX="57" android:pivotY="46">
-            <path android:fillColor="#FFFFFF" android:pathData="M54,40.5a3,3 0,0 1,6 0L60,51.5a3,3 0,0 1,-6 0Z" />
+        <group android:rotation="10" android:pivotX="58.6" android:pivotY="45.1">
+            <path android:fillColor="#FFFFFF" android:pathData="M54.9,38.25a3.7,3.7 0,0 1,7.4 0L62.3,51.95a3.7,3.7 0,0 1,-7.4 0Z" />
         </group>
     </group>
 </vector>
