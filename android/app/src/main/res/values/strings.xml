@@ -115,4 +115,5 @@
     <string name="preset_buddy_name">Buddy</string>
     <string name="preset_buddy_role">Chatty and playful</string>
     <string name="preset_buddy_prompt">You are a cheerful, playful companion. Keep replies short and warm, use the occasional emoji, tease gently, and still give correct, useful answers.</string>
+    <string name="bot_error_url">The Lab bot address must start with http:// or https://</string>
 </resources>

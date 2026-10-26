@@ -28,7 +28,7 @@ sealed interface BotEvent {
     data object Tool : BotEvent
     data object Done : BotEvent
     data class Error(val kind: Kind, val detail: String = "") : BotEvent {
-        enum class Kind { NotConnected, NoKey, Auth, Unreachable, Other }
+        enum class Kind { NotConnected, NoKey, BadUrl, Auth, Unreachable, Other }
     }
 }
 
@@ -57,7 +57,17 @@ class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) 
                     .connectTimeout(15, TimeUnit.SECONDS)
                     .readTimeout(120, TimeUnit.SECONDS) // the server sends a keepalive every 10 s
                     .build()
-                val c = client.newCall(request(history, systemPrompt))
+                val req = try {
+                    request(history, systemPrompt)
+                } catch (e: IllegalArgumentException) {
+                    null // an address OkHttp cannot parse
+                }
+                if (req == null) {
+                    trySend(BotEvent.Error(BotEvent.Error.Kind.BadUrl, prefs.effectiveBotUrl))
+                    close()
+                    return@callbackFlow awaitClose {}
+                }
+                val c = client.newCall(req)
                 call = c
                 launch(Dispatchers.IO) {
                     try {

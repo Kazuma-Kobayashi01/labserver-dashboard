@@ -5,6 +5,7 @@ import com.labserver.lablink.data.BotStore
 import com.labserver.lablink.data.ChatMessage
 import com.labserver.lablink.data.ChatStore
 import com.labserver.lablink.data.Prefs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -78,6 +79,10 @@ class ChatController(
                         is BotEvent.Error -> onCurrent(bot.id) { it.copy(error = ev) }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onCurrent(bot.id) { it.copy(error = BotEvent.Error(BotEvent.Error.Kind.Other, e.message ?: e.toString())) }
             } finally {
                 withContext(NonCancellable) {
                     // save into the chat this reply belongs to, even if the user switched bots meanwhile

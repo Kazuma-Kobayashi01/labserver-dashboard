@@ -50,6 +50,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.labserver.lablink.R
+import com.labserver.lablink.data.Prefs
 import com.labserver.lablink.data.parseWgQuick
 import com.labserver.lablink.labApp
 import com.labserver.lablink.tunnel.TunnelState
@@ -68,7 +69,8 @@ fun LinkScreen(state: TunnelState) {
     var endpoint by remember { mutableStateOf(prefs.endpoint) }
     var hubKey by remember { mutableStateOf(prefs.hubPublicKey) }
     var psk by remember { mutableStateOf(prefs.presharedKey) }
-    var botUrl by remember { mutableStateOf(prefs.botBaseUrl) }
+    var botUrl by remember { mutableStateOf(prefs.botBaseUrl.takeIf { Prefs.isHttpUrl(it) } ?: "") }
+    var botUrlError by remember { mutableStateOf(false) }
     var botKey by remember { mutableStateOf(prefs.botKey) }
     var domain by remember { mutableStateOf(prefs.domain) }
     var tunnelHost by remember { mutableStateOf(prefs.tunnelHost) }
@@ -80,7 +82,12 @@ fun LinkScreen(state: TunnelState) {
 
     LaunchedEffect(Unit) { pub = withContext(Dispatchers.IO) { app.tunnel.publicKey() } }
 
-    fun save() {
+    fun save(): Boolean {
+        if (botUrl.isNotBlank() && !Prefs.isHttpUrl(botUrl)) {
+            botUrlError = true
+            return false
+        }
+        botUrlError = false
         prefs.address = address
         prefs.endpoint = endpoint
         prefs.hubPublicKey = hubKey
@@ -90,6 +97,7 @@ fun LinkScreen(state: TunnelState) {
         prefs.domain = domain
         prefs.tunnelHost = tunnelHost
         prefs.allowedIPs = allowedIPs
+        return true
     }
 
     val copiedMsg = stringResource(R.string.link_copied)
@@ -105,7 +113,7 @@ fun LinkScreen(state: TunnelState) {
         ) {
             StatusCard(state, onToggle = {
                 if (state is TunnelState.On || state is TunnelState.Connecting) app.tunnel.disconnect()
-                else { save(); app.tunnel.connect() }
+                else { if (save()) app.tunnel.connect() }
             }, onShowLog = { showLog = true })
 
             Section(stringResource(R.string.link_device)) {
@@ -155,12 +163,16 @@ fun LinkScreen(state: TunnelState) {
             }
 
             Section(stringResource(R.string.link_bot)) {
-                Field(botUrl, { botUrl = it }, stringResource(R.string.link_bot_url), placeholder = "http://bot.$domain/p/labbot/v1")
+                Field(
+                    botUrl, { botUrl = it; botUrlError = false }, stringResource(R.string.link_bot_url),
+                    placeholder = "http://bot.$domain/p/labbot/v1",
+                    error = if (botUrlError) stringResource(R.string.bot_error_url) else null,
+                )
                 Field(botKey, { botKey = it }, stringResource(R.string.link_bot_key), secret = true)
             }
 
             Button(
-                onClick = { save(); Toast.makeText(ctx, savedMsg, Toast.LENGTH_SHORT).show() },
+                onClick = { if (save()) Toast.makeText(ctx, savedMsg, Toast.LENGTH_SHORT).show() },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) { Text(stringResource(R.string.link_save)) }
         }
@@ -264,12 +276,14 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Field(value: String, onChange: (String) -> Unit, label: String, secret: Boolean = false, placeholder: String? = null) {
+private fun Field(value: String, onChange: (String) -> Unit, label: String, secret: Boolean = false, placeholder: String? = null, error: String? = null) {
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label) },
         placeholder = placeholder?.let { { Text(it) } },
+        isError = error != null,
+        supportingText = error?.let { { Text(it) } },
         singleLine = true,
         shape = RoundedCornerShape(16.dp),
         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,

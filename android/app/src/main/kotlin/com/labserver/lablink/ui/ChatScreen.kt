@@ -285,6 +285,7 @@ private fun ErrorCard(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: () 
     val text = when (err.kind) {
         BotEvent.Error.Kind.NotConnected -> stringResource(R.string.bot_need_connect)
         BotEvent.Error.Kind.NoKey -> stringResource(R.string.bot_need_key)
+        BotEvent.Error.Kind.BadUrl -> stringResource(R.string.bot_error_url)
         BotEvent.Error.Kind.Auth -> stringResource(R.string.bot_error_auth)
         BotEvent.Error.Kind.Unreachable -> stringResource(R.string.bot_error_unreachable) + if (err.detail.isNotBlank()) " (${err.detail})" else ""
         BotEvent.Error.Kind.Other -> err.detail
@@ -297,7 +298,7 @@ private fun ErrorCard(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: () 
             Text(text, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.weight(1f))
             when (err.kind) {
                 BotEvent.Error.Kind.NotConnected -> TextButton(onClick = onConnect) { Text(stringResource(R.string.link_connect)) }
-                BotEvent.Error.Kind.NoKey, BotEvent.Error.Kind.Auth -> TextButton(onClick = onOpenLink) { Text(stringResource(R.string.tab_link)) }
+                BotEvent.Error.Kind.NoKey, BotEvent.Error.Kind.BadUrl, BotEvent.Error.Kind.Auth -> TextButton(onClick = onOpenLink) { Text(stringResource(R.string.tab_link)) }
                 else -> TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_ok)) }
             }
         }
