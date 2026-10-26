@@ -1,12 +1,17 @@
 # LabLink for Android (+ Lab bot)
 
-A native Android app (Kotlin, Jetpack Compose, **Material 3**) with three tabs:
+A native Android app (Kotlin, Jetpack Compose, **Material 3**, with Material 3 Expressive touches). Chat is the home
+screen, as in Gemini, ChatGPT and Claude; everything else is in the navigation drawer. Design notes and what was
+borrowed from which product: [DESIGN.md](DESIGN.md).
 
-| Tab | What it does |
+<img src="../docs/images/lablink-android-zh.png" alt="LabLink for Android: chat, empty state, drawer, home lab, bot editor" />
+
+| Where | What it does |
 |---|---|
-| **Lab bot** | Chat with Hermes (streamed replies, collapsible "thoughts", light Markdown). You can create **several bots**, each with its own name, one-line role, system prompt and orb colour, and its own conversation. Tap the bot's name in the top bar to switch, edit or add one (templates: translator, coder, writing coach, lab helper, buddy). |
-| **Panels** | Dashboard, Incus, Mihomo, Git, Nextcloud, Hermes. They open in an in-app WebView, **never** in the phone's browser. |
-| **Link** | Connect / disconnect, this device's public key, hub settings, Lab bot address and key. |
+| **Chat** (home) | Talk to the current bot: streamed replies as full-width text, collapsible "thoughts", light Markdown, one big rounded composer. Tap the bot's name in the top bar to switch, edit or add a bot. |
+| **Bots** (drawer) | Several bots, each with its own name, one-line role, system prompt, orb colour and conversation. The editor starts from templates (translator, coder, writing coach, lab helper, buddy) and previews the bot live. |
+| **Home lab** (drawer) | The connection switch, then Dashboard, Incus, Mihomo, Git, Nextcloud and Hermes as tiles. They open in an in-app WebView, **never** in the phone's browser. |
+| **Settings** (drawer) | This device's public key, hub settings, Lab bot address and key. |
 
 ## The tunnel lives inside the app
 
@@ -44,9 +49,9 @@ can also be tried on a desktop: `go run ./tunnel/cmd/labtunnel-cli config.json` 
 
 ## First run
 
-1. **Link** tab → copy the **public key** (the phone generates its own key pair).
+1. **Settings** (drawer) → copy the **public key** (the phone generates its own key pair).
 2. On the server side, add the phone as a WireGuard device: `deploy/wireguard/add-device.sh` (see that README).
-3. **Link** tab → fill in the hub endpoint (`host:port`) and the hub's public key. Or copy a wg-quick config to the
+3. **Settings** → fill in the hub endpoint (`host:port`) and the hub's public key. Or copy a wg-quick config to the
    clipboard and tap **Paste a config**. The default overlay address is `10.77.0.4`.
 4. Lab bot: set the API key (see `deploy/hermes/labbot.md`); the default address is `http://bot.<domain>/p/labbot/v1`.
 5. **Connect to home**. Panels and Lab bot work while it says *Connected*.
@@ -54,9 +59,10 @@ can also be tried on a desktop: `go run ./tunnel/cmd/labtunnel-cli config.json` 
 ## Notes
 
 * Plain HTTP is allowed only for the home hosts and the loopback proxy (`res/xml/network_security_config.xml`). If you
-  use a different home domain, change it there as well as in **Link → Advanced**.
-* The logo is a glossy round orb with two slanted pill eyes (`ui/BotAvatar.kt`, `res/drawable/ic_launcher_foreground.xml`);
-  in the app it takes the bot's colour and blinks while the bot is thinking.
+  use a different home domain, change it there as well as in **Settings → Advanced**.
+* The logo is a small planet-bot: a flat orb with two slanted pill eyes, an orbit ring and a satellite
+  (`ui/BotAvatar.kt`, `res/drawable/ic_launcher_foreground.xml`). Each bot gets its own orb colour; the eyes blink and the
+  satellite travels round the orbit while the bot is thinking.
 * The debug APK is signed with the local debug key. For a release build create your own keystore (it is git-ignored).
 * Not done yet: a foreground service to keep the tunnel alive in the background, light/dark WebView theming, file
   downloads from panels.

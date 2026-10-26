@@ -1,6 +1,13 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,36 +18,41 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,10 +62,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -66,15 +80,19 @@ import com.labserver.lablink.tunnel.TunnelState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(tunnel: TunnelState, onPill: () -> Unit, onOpenLink: () -> Unit) {
+fun ChatScreen(
+    tunnel: TunnelState,
+    onOpenDrawer: () -> Unit,
+    onConnect: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onNewBot: () -> Unit,
+    onEditBot: (Bot) -> Unit,
+) {
     val app = LocalContext.current.labApp
     val ui by app.chat.ui.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
     var confirmClear by remember { mutableStateOf(false) }
     var showPicker by remember { mutableStateOf(false) }
-    // null = closed; a Bot = editing it; NEW = creating
-    var editing by remember { mutableStateOf<Bot?>(null) }
-    var creating by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val botColor = Color(ui.bot.color)
 
@@ -87,33 +105,43 @@ fun ChatScreen(tunnel: TunnelState, onPill: () -> Unit, onOpenLink: () -> Unit) 
     }
 
     Column(Modifier.fillMaxSize().imePadding()) {
-        TopAppBar(
+        CenterAlignedTopAppBar(
+            navigationIcon = {
+                IconButton(onClick = onOpenDrawer) {
+                    Box {
+                        Icon(Icons.Rounded.Menu, contentDescription = null)
+                        // connection status, always in sight
+                        Box(
+                            Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-2).dp).size(9.dp)
+                                .background(MaterialTheme.colorScheme.surface, CircleShape).padding(1.5.dp)
+                                .background(tunnelDotColor(tunnel), CircleShape),
+                        )
+                    }
+                }
+            },
             title = {
+                // bot switcher, Gemini style: the name with a chevron
                 Row(
-                    Modifier.clickable { showPicker = true }.padding(vertical = 4.dp, horizontal = 4.dp),
+                    Modifier.clip(RoundedCornerShape(50)).clickable { showPicker = true }.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    BotAvatar(38.dp, color = botColor, thinking = ui.streaming)
-                    Column(Modifier.padding(start = 10.dp).weight(1f, fill = false)) {
-                        Text(ui.bot.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (ui.bot.role.isNotBlank()) {
-                            Text(
-                                ui.bot.role, style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                    Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.bots_title))
+                    BotAvatar(28.dp, color = botColor, thinking = ui.streaming)
+                    Spacer(Modifier.width(8.dp))
+                    Text(ui.bot.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp))
+                    Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.bots_title), modifier = Modifier.size(20.dp))
                 }
             },
             actions = {
-                ConnectionPill(tunnel, onPill)
-                IconButton(onClick = { confirmClear = true }, enabled = ui.messages.isNotEmpty()) {
-                    Icon(Icons.Rounded.DeleteSweep, contentDescription = stringResource(R.string.bot_new_chat))
+                IconButton(onClick = { confirmClear = true }, enabled = ui.messages.isNotEmpty() && !ui.streaming) {
+                    Icon(Icons.Rounded.EditNote, contentDescription = stringResource(R.string.bot_new_chat))
                 }
             },
             windowInsets = WindowInsets(0),
         )
+
+        AnimatedVisibility(tunnel !is TunnelState.On, enter = expandVertically(), exit = shrinkVertically()) {
+            OfflineBanner(tunnel, onConnect)
+        }
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (ui.messages.isEmpty()) {
@@ -123,30 +151,30 @@ fun ChatScreen(tunnel: TunnelState, onPill: () -> Unit, onOpenLink: () -> Unit) 
                     state = listState,
                     reverseLayout = true,
                     modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
                 ) {
                     val msgs = ui.messages
                     items(msgs.asReversed(), key = { it.id }) { m ->
                         val last = m.id == msgs.last().id
                         if (m.role == "user") UserBubble(m)
-                        else BotBubble(m, botColor, thinking = last && ui.streaming, working = last && ui.working)
+                        else BotReply(m, ui.bot, thinking = last && ui.streaming, working = last && ui.working)
                     }
                 }
             }
         }
 
         ui.error?.let { err ->
-            ErrorCard(
+            ErrorStrip(
                 err,
                 onDismiss = app.chat::dismissError,
-                onConnect = { app.tunnel.connect(); app.chat.dismissError() },
-                onOpenLink = { onOpenLink(); app.chat.dismissError() },
+                onConnect = { onConnect(); app.chat.dismissError() },
+                onOpenSettings = { onOpenSettings(); app.chat.dismissError() },
             )
         }
 
-        InputBar(
-            hint = stringResource(R.string.bot_hint, ui.bot.name),
+        Composer(
+            hint = stringResource(R.string.bot_hint, cjkSpaced(ui.bot.name)),
             value = input,
             onValueChange = { input = it },
             streaming = ui.streaming,
@@ -160,25 +188,9 @@ fun ChatScreen(tunnel: TunnelState, onPill: () -> Unit, onOpenLink: () -> Unit) 
             bots = ui.bots,
             currentId = ui.bot.id,
             onSelect = { app.chat.select(it.id); showPicker = false },
-            onEdit = { editing = it; showPicker = false },
-            onNew = { creating = true; showPicker = false },
+            onEdit = { onEditBot(it); showPicker = false },
+            onNew = { onNewBot(); showPicker = false },
             onDismiss = { showPicker = false },
-        )
-    }
-    if (creating) {
-        BotEditorDialog(
-            initial = null, canDelete = false,
-            onSave = { app.chat.saveBot(it); app.chat.select(it.id); creating = false },
-            onDelete = {},
-            onDismiss = { creating = false },
-        )
-    }
-    editing?.let { bot ->
-        BotEditorDialog(
-            initial = bot, canDelete = ui.bots.size > 1,
-            onSave = { app.chat.saveBot(it); editing = null },
-            onDelete = { app.chat.deleteBot(bot.id); editing = null },
-            onDismiss = { editing = null },
         )
     }
     if (confirmClear) {
@@ -186,52 +198,147 @@ fun ChatScreen(tunnel: TunnelState, onPill: () -> Unit, onOpenLink: () -> Unit) 
             onDismissRequest = { confirmClear = false },
             title = { Text(stringResource(R.string.bot_new_chat)) },
             text = { Text(stringResource(R.string.bot_new_chat_confirm)) },
-            confirmButton = {
-                TextButton(onClick = { app.chat.clear(); confirmClear = false }) { Text(stringResource(R.string.common_ok)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.common_cancel)) }
-            },
+            confirmButton = { TextButton(onClick = { app.chat.clear(); confirmClear = false }) { Text(stringResource(R.string.common_ok)) } },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
 }
 
 @Composable
-private fun EmptyState(bot: Bot, onSuggest: (String) -> Unit) {
-    Column(
-        Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
+private fun OfflineBanner(tunnel: TunnelState, onConnect: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
-        BotAvatar(112.dp, color = Color(bot.color))
-        Spacer(Modifier.padding(8.dp))
-        Text(stringResource(R.string.bot_hello_named, bot.name), style = MaterialTheme.typography.headlineSmall)
-        Text(
-            bot.role.ifBlank { stringResource(R.string.bot_hello_sub) },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp, bottom = 20.dp),
-        )
-        listOf(R.string.bot_suggest_1, R.string.bot_suggest_2, R.string.bot_suggest_3).forEach { res ->
-            val text = stringResource(res)
-            SuggestionChip(onClick = { onSuggest(text) }, label = { Text(text) }, modifier = Modifier.padding(vertical = 3.dp))
+        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).background(tunnelDotColor(tunnel), CircleShape))
+            Text(
+                if (tunnel is TunnelState.Connecting) stringResource(R.string.link_connecting) else stringResource(R.string.bot_need_connect),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+            )
+            if (tunnel is TunnelState.Connecting) {
+                CircularProgressIndicator(Modifier.padding(12.dp).size(18.dp), strokeWidth = 2.dp)
+            } else {
+                FilledTonalButton(onClick = onConnect, contentPadding = PaddingValues(horizontal = 16.dp)) { Text(stringResource(R.string.link_connect)) }
+            }
         }
     }
 }
 
+/** Hero moment: the bot's planet-orb, its greeting in big type, and four suggestion cards. */
+@Composable
+private fun EmptyState(bot: Bot, onSuggest: (String) -> Unit) {
+    val suggestions = listOf(R.string.bot_suggest_1, R.string.bot_suggest_2, R.string.bot_suggest_3, R.string.bot_suggest_4).map { stringResource(it) }
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        BotHero(150.dp, color = Color(bot.color))
+        Text(
+            stringResource(R.string.bot_hello_named, cjkSpaced(bot.name)),
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            bot.role.ifBlank { stringResource(R.string.bot_hello_sub) },
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 6.dp, bottom = 28.dp),
+        )
+        for (row in suggestions.chunked(2)) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { s ->
+                    Surface(
+                        onClick = { onSuggest(s) },
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shape = RoundedCornerShape(24.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 76.dp),
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                            Text(s, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+                            Icon(
+                                Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.align(Alignment.End).padding(top = 6.dp).size(18.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The user's turn: a soft tonal bubble on the right. */
 @Composable
 private fun UserBubble(m: ChatMessage) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 6.dp),
-            modifier = Modifier.widthIn(max = 320.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 8.dp),
+            modifier = Modifier.widthIn(max = 300.dp).padding(start = 48.dp),
         ) {
             SelectionContainer {
                 Text(
-                    m.content, color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    m.content,
                     style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
+                )
+            }
+        }
+    }
+}
+
+/** The bot's turn: no bubble, a page of text under its orb and name (as in Gemini and Claude). */
+@Composable
+private fun BotReply(m: ChatMessage, bot: Bot, thinking: Boolean, working: Boolean) {
+    var showThoughts by rememberSaveable(m.id) { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BotAvatar(26.dp, color = Color(bot.color), thinking = thinking)
+            Text(
+                bot.name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        Column(Modifier.padding(start = 34.dp, top = 6.dp)) {
+            if (m.reasoning.isNotBlank()) {
+                Surface(
+                    onClick = { showThoughts = !showThoughts },
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.padding(bottom = 8.dp),
+                ) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Psychology, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                            Text(stringResource(R.string.bot_thought), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 6.dp))
+                            Icon(if (showThoughts) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                        AnimatedVisibility(showThoughts) {
+                            Text(
+                                m.reasoning,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            when {
+                m.content.isNotBlank() -> SelectionContainer { MarkdownText(m.content, MaterialTheme.colorScheme.onSurface) }
+                thinking -> Text(
+                    stringResource(if (working) R.string.bot_working else R.string.bot_thinking),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -239,49 +346,7 @@ private fun UserBubble(m: ChatMessage) {
 }
 
 @Composable
-private fun BotBubble(m: ChatMessage, color: Color, thinking: Boolean, working: Boolean) {
-    var showThoughts by rememberSaveable(m.id) { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        BotAvatar(34.dp, Modifier.padding(top = 2.dp), color = color, thinking = thinking)
-        Spacer(Modifier.width(8.dp))
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(topStart = 6.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 24.dp),
-            modifier = Modifier.widthIn(max = 340.dp),
-        ) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                if (m.reasoning.isNotBlank()) {
-                    TextButton(onClick = { showThoughts = !showThoughts }, contentPadding = PaddingValues(0.dp)) {
-                        Text(stringResource(R.string.bot_thought), style = MaterialTheme.typography.labelLarge)
-                        Icon(if (showThoughts) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = null)
-                    }
-                    AnimatedVisibility(showThoughts) {
-                        Text(
-                            m.reasoning,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontStyle = FontStyle.Italic,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                    }
-                }
-                when {
-                    m.content.isNotBlank() -> SelectionContainer {
-                        MarkdownText(m.content, MaterialTheme.colorScheme.onSurface)
-                    }
-                    thinking -> Text(
-                        stringResource(if (working) R.string.bot_working else R.string.bot_thinking),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ErrorCard(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: () -> Unit, onOpenLink: () -> Unit) {
+private fun ErrorStrip(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: () -> Unit, onOpenSettings: () -> Unit) {
     val text = when (err.kind) {
         BotEvent.Error.Kind.NotConnected -> stringResource(R.string.bot_need_connect)
         BotEvent.Error.Kind.NoKey -> stringResource(R.string.bot_need_key)
@@ -290,52 +355,79 @@ private fun ErrorCard(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: () 
         BotEvent.Error.Kind.Unreachable -> stringResource(R.string.bot_error_unreachable) + if (err.detail.isNotBlank()) " (${err.detail})" else ""
         BotEvent.Error.Kind.Other -> err.detail
     }
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
-        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(text, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.weight(1f))
+        Row(Modifier.padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(text, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             when (err.kind) {
                 BotEvent.Error.Kind.NotConnected -> TextButton(onClick = onConnect) { Text(stringResource(R.string.link_connect)) }
-                BotEvent.Error.Kind.NoKey, BotEvent.Error.Kind.BadUrl, BotEvent.Error.Kind.Auth -> TextButton(onClick = onOpenLink) { Text(stringResource(R.string.tab_link)) }
+                BotEvent.Error.Kind.NoKey, BotEvent.Error.Kind.BadUrl, BotEvent.Error.Kind.Auth -> TextButton(onClick = onOpenSettings) { Text(stringResource(R.string.nav_settings)) }
                 else -> TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_ok)) }
             }
         }
     }
 }
 
+/** One big rounded container, as in Grok and Gemini; the send button morphs into a stop square while streaming. */
 @Composable
-private fun InputBar(hint: String, value: String, onValueChange: (String) -> Unit, streaming: Boolean, onSend: () -> Unit, onStop: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Bottom,
+private fun Composer(hint: String, value: String, onValueChange: (String) -> Unit, streaming: Boolean, onSend: () -> Unit, onStop: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(28.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp),
     ) {
-        TextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.weight(1f),
-            placeholder = { Text(hint, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            shape = RoundedCornerShape(28.dp),
-            maxLines = 5,
-            colors = TextFieldDefaults.colors(
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                disabledIndicatorColor = Color.Transparent,
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            ),
-        )
-        Spacer(Modifier.width(8.dp))
-        FilledIconButton(
-            onClick = if (streaming) onStop else onSend,
-            enabled = streaming || value.isNotBlank(),
-            modifier = Modifier.padding(bottom = 4.dp),
-        ) {
-            Icon(
-                if (streaming) Icons.Rounded.Stop else Icons.AutoMirrored.Rounded.Send,
-                contentDescription = null,
+        Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
+            TextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.weight(1f),
+                placeholder = { Text(hint, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                maxLines = 6,
+                colors = TextFieldDefaults.colors(
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent,
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                ),
             )
+            val enabled = streaming || value.isNotBlank()
+            // circle -> rounded square, on a spring
+            val corner by animateDpAsState(
+                if (streaming) 14.dp else 22.dp,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                label = "send shape",
+            )
+            Surface(
+                onClick = if (streaming) onStop else onSend,
+                enabled = enabled,
+                shape = RoundedCornerShape(corner),
+                color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                contentColor = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 6.dp).size(44.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    AnimatedContent(streaming, label = "send icon") { s ->
+                        if (s) Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.onPrimary, RoundedCornerShape(3.dp)))
+                        else Icon(Icons.Rounded.ArrowUpward, contentDescription = null)
+                    }
+                }
+            }
         }
     }
+    Spacer(Modifier.height(0.dp))
+}
+
+/**
+ * Chinese strings put the name right after Chinese text ("我是%1$s"); a Latin name ("Lab bot") reads better with a space
+ * on both sides, as Chinese typography usually adds. English strings already have their own spaces.
+ */
+@Composable
+private fun cjkSpaced(name: String): String {
+    val zh = LocalContext.current.resources.configuration.locales[0].language == "zh"
+    return if (zh && name.firstOrNull()?.let { it.code < 0x2E80 } == true) " $name " else name
 }

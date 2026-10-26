@@ -14,7 +14,7 @@
     <string name="bot_title">Lab bot</string>
     <string name="bot_hello">嗨，我是 Lab bot</string>
     <string name="bot_hello_sub">有什么都可以问我，我住在你的家庭实验室里。</string>
-    <string name="bot_hint">给 %1$s 发消息</string>
+    <string name="bot_hint">给%1$s发消息</string>
     <string name="bot_thinking">思考中…</string>
     <string name="bot_thought">思考过程</string>
     <string name="bot_working">正在查资料…</string>
@@ -84,7 +84,7 @@
 
     <string name="bot_default_name">Lab bot</string>
     <string name="bot_default_role">你的家庭实验室小伙伴</string>
-    <string name="bot_hello_named">嗨，我是 %1$s</string>
+    <string name="bot_hello_named">嗨，我是%1$s</string>
     <string name="bots_title">我的 bot</string>
     <string name="bots_new">新建 bot</string>
     <string name="bots_edit">编辑</string>
@@ -116,4 +116,14 @@
     <string name="preset_buddy_role">爱聊天，有点调皮</string>
     <string name="preset_buddy_prompt">你是一个开朗、爱玩闹的伙伴。回答简短、温暖，偶尔用个表情，轻轻调侃，但给出的信息仍要正确有用。</string>
     <string name="bot_error_url">Lab bot 接口地址必须以 http:// 或 https:// 开头</string>
+    <string name="nav_bots">Bot</string>
+    <string name="nav_home_lab">家庭实验室</string>
+    <string name="nav_settings">设置</string>
+    <string name="home_title">家里</string>
+    <string name="bot_suggest_4">帮我规划一下周末</string>
+    <string name="link_diagnostics">诊断</string>
+    <string name="link_advanced">高级</string>
+    <string name="link_domain">家里的域名</string>
+    <string name="link_tunnel_host">隧道内的服务器地址</string>
+    <string name="link_allowed_ips">允许的地址段</string>
 </resources>

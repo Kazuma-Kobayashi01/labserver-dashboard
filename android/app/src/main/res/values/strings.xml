@@ -116,4 +116,14 @@
     <string name="preset_buddy_role">Chatty and playful</string>
     <string name="preset_buddy_prompt">You are a cheerful, playful companion. Keep replies short and warm, use the occasional emoji, tease gently, and still give correct, useful answers.</string>
     <string name="bot_error_url">The Lab bot address must start with http:// or https://</string>
+    <string name="nav_bots">Bots</string>
+    <string name="nav_home_lab">Home lab</string>
+    <string name="nav_settings">Settings</string>
+    <string name="home_title">Home</string>
+    <string name="bot_suggest_4">Plan my weekend</string>
+    <string name="link_diagnostics">Diagnostics</string>
+    <string name="link_advanced">Advanced</string>
+    <string name="link_domain">Home domain</string>
+    <string name="link_tunnel_host">Server address inside the tunnel</string>
+    <string name="link_allowed_ips">Allowed IPs</string>
 </resources>

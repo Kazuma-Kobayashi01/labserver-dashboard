@@ -51,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -60,17 +61,18 @@ import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.BotColors
 
 private class Preset(
+    val color: Long,
     @StringRes val name: Int,
     @StringRes val role: Int,
     @StringRes val prompt: Int,
 )
 
 private val presets = listOf(
-    Preset(R.string.preset_translator_name, R.string.preset_translator_role, R.string.preset_translator_prompt),
-    Preset(R.string.preset_coder_name, R.string.preset_coder_role, R.string.preset_coder_prompt),
-    Preset(R.string.preset_writer_name, R.string.preset_writer_role, R.string.preset_writer_prompt),
-    Preset(R.string.preset_lab_name, R.string.preset_lab_role, R.string.preset_lab_prompt),
-    Preset(R.string.preset_buddy_name, R.string.preset_buddy_role, R.string.preset_buddy_prompt),
+    Preset(0xFF3B9BE8, R.string.preset_translator_name, R.string.preset_translator_role, R.string.preset_translator_prompt),
+    Preset(0xFF2B2B3A, R.string.preset_coder_name, R.string.preset_coder_role, R.string.preset_coder_prompt),
+    Preset(0xFFF2724D, R.string.preset_writer_name, R.string.preset_writer_role, R.string.preset_writer_prompt),
+    Preset(0xFF2FBF8F, R.string.preset_lab_name, R.string.preset_lab_role, R.string.preset_lab_prompt),
+    Preset(0xFFE8589B, R.string.preset_buddy_name, R.string.preset_buddy_role, R.string.preset_buddy_prompt),
 )
 
 /** Switch between bots, or start a new one. */
@@ -126,9 +128,7 @@ fun BotEditorDialog(initial: Bot?, canDelete: Boolean, onSave: (Bot) -> Unit, on
     var confirmDelete by remember { mutableStateOf(false) }
     var showError by remember { mutableStateOf(false) }
 
-    val presetStrings = presets.map { p ->
-        Triple(stringResource(p.name), stringResource(p.name) to stringResource(p.role), stringResource(p.prompt))
-    }
+    val presetStrings = presets.map { p -> Triple(p.color, stringResource(p.name) to stringResource(p.role), stringResource(p.prompt)) }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize()) {
@@ -148,7 +148,12 @@ fun BotEditorDialog(initial: Bot?, canDelete: Boolean, onSave: (Bot) -> Unit, on
                     Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { BotAvatar(96.dp, color = Color(color)) }
+                    // live preview: the hero orb takes the colour as you pick it
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        BotHero(150.dp, color = Color(color))
+                        Text(name.ifBlank { stringResource(R.string.bot_editor_new) }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (role.isNotBlank()) Text(role, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
 
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         BotColors.palette().forEach { c ->
@@ -160,6 +165,32 @@ fun BotEditorDialog(initial: Bot?, canDelete: Boolean, onSave: (Bot) -> Unit, on
                                     .clickable { color = c },
                                 contentAlignment = Alignment.Center,
                             ) { if (sel) Icon(Icons.Rounded.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp)) }
+                        }
+                    }
+
+                    if (initial == null) {
+                        Text(stringResource(R.string.bot_presets), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        // templates as small bot cards, each with its own orb colour
+                        presetStrings.chunked(2).forEach { row ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                row.forEach { (c, np, text) ->
+                                    Surface(
+                                        onClick = { name = np.first; role = np.second; prompt = text; color = c },
+                                        shape = RoundedCornerShape(22.dp),
+                                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            BotAvatar(36.dp, color = Color(c))
+                                            Column(Modifier.padding(start = 10.dp)) {
+                                                Text(np.first, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                Text(np.second, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                        }
+                                    }
+                                }
+                                if (row.size == 1) Spacer(Modifier.weight(1f))
+                            }
                         }
                     }
 
@@ -180,14 +211,6 @@ fun BotEditorDialog(initial: Bot?, canDelete: Boolean, onSave: (Bot) -> Unit, on
                         supportingText = { Text(stringResource(R.string.bot_prompt_hint)) },
                         minLines = 6, maxLines = 14, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(),
                     )
-
-                    if (initial == null) {
-                        Text(stringResource(R.string.bot_presets), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        FlowChips(presetStrings.map { it.first }) { i ->
-                            val (_, np, text) = presetStrings[i]
-                            name = np.first; role = np.second; prompt = text
-                        }
-                    }
 
                     if (initial != null && canDelete) {
                         OutlinedButton(
@@ -210,16 +233,5 @@ fun BotEditorDialog(initial: Bot?, canDelete: Boolean, onSave: (Bot) -> Unit, on
             confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text(stringResource(R.string.common_ok)) } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun FlowChips(labels: List<String>, onClick: (Int) -> Unit) {
-    androidx.compose.foundation.layout.FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        labels.forEachIndexed { i, label -> AssistChip(onClick = { onClick(i) }, label = { Text(label) }) }
     }
 }

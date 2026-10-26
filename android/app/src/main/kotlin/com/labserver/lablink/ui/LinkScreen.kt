@@ -24,7 +24,11 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -60,7 +64,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LinkScreen(state: TunnelState) {
+fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val app = ctx.labApp
     val prefs = app.prefs
@@ -105,14 +109,20 @@ fun LinkScreen(state: TunnelState) {
     val importDone = stringResource(R.string.link_import_done)
     val importEmpty = stringResource(R.string.link_import_empty)
 
-    Column(Modifier.fillMaxSize()) {
-        CenterAlignedTopAppBar(title = { Text(stringResource(R.string.link_title)) }, windowInsets = WindowInsets(0))
+    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    Column(Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection)) {
+        LargeTopAppBar(
+            title = { Text(stringResource(R.string.nav_settings), fontWeight = FontWeight.Bold) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.web_back)) } },
+            scrollBehavior = scroll,
+            windowInsets = WindowInsets(0),
+        )
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            StatusCard(state, onToggle = {
-                if (state is TunnelState.On || state is TunnelState.Connecting) app.tunnel.disconnect()
+            ConnectionCard(state, onToggle = {
+                if (state.isUpOrBusy) app.tunnel.disconnect()
                 else { if (save()) app.tunnel.connect() }
             }, onShowLog = { showLog = true })
 
@@ -152,13 +162,13 @@ fun LinkScreen(state: TunnelState) {
                 }) { Text(stringResource(R.string.link_import)) }
 
                 TextButton(onClick = { advanced = !advanced }) {
-                    Text("Advanced")
+                    Text(stringResource(R.string.link_advanced))
                     Icon(if (advanced) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = null)
                 }
                 if (advanced) {
-                    Field(domain, { domain = it }, "Home domain")
-                    Field(tunnelHost, { tunnelHost = it }, "Server address inside the tunnel")
-                    Field(allowedIPs, { allowedIPs = it }, "Allowed IPs")
+                    Field(domain, { domain = it }, stringResource(R.string.link_domain))
+                    Field(tunnelHost, { tunnelHost = it }, stringResource(R.string.link_tunnel_host))
+                    Field(allowedIPs, { allowedIPs = it }, stringResource(R.string.link_allowed_ips))
                 }
             }
 
@@ -197,7 +207,7 @@ fun LinkScreen(state: TunnelState) {
     if (showLog) {
         AlertDialog(
             onDismissRequest = { showLog = false },
-            title = { Text("Tunnel log") },
+            title = { Text(stringResource(R.string.link_diagnostics)) },
             text = {
                 SelectionContainer {
                     Text(app.tunnel.log().ifBlank { "(empty)" }, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
@@ -206,59 +216,6 @@ fun LinkScreen(state: TunnelState) {
             },
             confirmButton = { TextButton(onClick = { showLog = false }) { Text(stringResource(R.string.common_ok)) } },
         )
-    }
-}
-
-@Composable
-private fun StatusCard(state: TunnelState, onToggle: () -> Unit, onShowLog: () -> Unit) {
-    // ticks every second so the "still waiting" hint can appear
-    val now by produceState(System.currentTimeMillis()) { while (true) { delay(1000); value = System.currentTimeMillis() } }
-    val busy = state is TunnelState.Connecting
-    Card(
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = when (state) {
-                is TunnelState.On -> MaterialTheme.colorScheme.primaryContainer
-                is TunnelState.Failed -> MaterialTheme.colorScheme.errorContainer
-                else -> MaterialTheme.colorScheme.surfaceContainer
-            },
-        ),
-    ) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 3.dp)
-                Text(
-                    when (state) {
-                        TunnelState.Off -> stringResource(R.string.status_off)
-                        is TunnelState.Connecting -> stringResource(R.string.link_connecting)
-                        is TunnelState.On -> stringResource(R.string.status_on)
-                        is TunnelState.Failed -> stringResource(R.string.status_failed)
-                    },
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.padding(start = if (busy) 12.dp else 0.dp),
-                )
-            }
-            val detail = when (state) {
-                TunnelState.Off -> stringResource(R.string.link_in_app_only)
-                is TunnelState.Connecting ->
-                    if (now - state.since > 15_000) stringResource(R.string.link_waiting) else ""
-                is TunnelState.On ->
-                    stringResource(R.string.link_handshake, ago(state.handshakeAgo)) + "  ·  ↓ ${bytes(state.rx)}  ↑ ${bytes(state.tx)}"
-                is TunnelState.Failed ->
-                    if (state.missingConfig) stringResource(R.string.link_missing) else state.message
-            }
-            if (detail.isNotEmpty()) Text(detail, style = MaterialTheme.typography.bodyMedium)
-
-            FilledTonalButton(onClick = onToggle, modifier = Modifier.fillMaxWidth().height(52.dp).padding(top = 4.dp)) {
-                Text(
-                    if (state is TunnelState.On || state is TunnelState.Connecting) stringResource(R.string.link_disconnect)
-                    else stringResource(R.string.link_connect),
-                )
-            }
-            if (state is TunnelState.Failed || (state is TunnelState.Connecting && now - state.since > 15_000)) {
-                TextButton(onClick = onShowLog) { Text("Diagnostics") }
-            }
-        }
     }
 }
 
@@ -289,16 +246,4 @@ private fun Field(value: String, onChange: (String) -> Unit, label: String, secr
         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
         modifier = Modifier.fillMaxWidth(),
     )
-}
-
-private fun ago(s: Long): String = when {
-    s < 60 -> "${s}s"
-    s < 3600 -> "${s / 60}m"
-    else -> "${s / 3600}h"
-}
-
-private fun bytes(n: Long): String = when {
-    n < 1024 -> "$n B"
-    n < 1024 * 1024 -> "%.1f KB".format(n / 1024.0)
-    else -> "%.1f MB".format(n / 1048576.0)
 }
