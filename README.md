@@ -40,6 +40,7 @@ English | [简体中文](README.zh-CN.md)
 | 🔒 | **Hardening** (`deploy/systemd`, `deploy/firewall`) | systemd sandboxing, a restricted Incus client certificate, and an nftables table that blocks direct-IP access to service ports. |
 | 🌐 | **WireGuard overlay** (`deploy/wireguard/`) | Hub on a cheap public VPS (Docker), gateway in an Incus container at home. Both dial **out**, so no router changes or port forwarding. |
 | 🍎 | **LabLink** (`mac/LabLink/`) | Native SwiftUI menu-panel app: one button to connect, instance list, one-click panels and SSH, light/dark, English/中文/日本語, **Touch ID** to bring the tunnel up. |
+| 🤖 | **LabLink for Android + Lab bot** (`android/`) | Material 3 app with an **in-app-only** WireGuard tunnel (no VpnService: nothing else on the phone uses it), home panels in a WebView and **Lab bot**, a chat with a restricted Hermes agent. See [android/README.md](android/README.md). |
 | 🧩 | **Extras** (`deploy/forgejo`, `deploy/hermes`, `deploy/mihomo*`) | Optional: self-hosted Git (Forgejo), Hermes Agent dashboard, Mihomo + MetaCubeXD, DeepSeek usage stats. |
 
 ## 🧭 Architecture

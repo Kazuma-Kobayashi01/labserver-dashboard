@@ -40,6 +40,7 @@
 | 🔒 | **加固**(`deploy/systemd`、`deploy/firewall`) | systemd 沙箱、受限的 Incus 客户端证书、nftables 规则阻止通过 IP 直连服务端口。 |
 | 🌐 | **WireGuard 虚拟组网**(`deploy/wireguard/`) | 便宜的公网 VPS 上跑 Docker 中转点,家里跑一个 Incus 网关容器。两边都是**主动向外连接**,不用改路由器、不用端口转发。 |
 | 🍎 | **LabLink**(`mac/LabLink/`) | 原生 SwiftUI 面板应用:一键连接、实例列表、一键打开面板和 SSH、深浅色、English/中文/日本語,用 **Touch ID** 确认建立隧道。 |
+| 🤖 | **LabLink Android 版 + Lab bot**(`android/`) | Material 3 应用,隧道**只在应用内**(不用 VpnService,手机上别的应用用不了),在 WebView 里打开家里的面板,还有和受限 Hermes agent 聊天的 **Lab bot**。见 [android/README.md](android/README.md)。 |
 | 🧩 | **可选组件**(`deploy/forgejo`、`deploy/hermes`、`deploy/mihomo*`) | 自托管 Git(Forgejo)、Hermes Agent 面板、Mihomo + MetaCubeXD、DeepSeek 用量统计。 |
 
 ## 🧭 架构

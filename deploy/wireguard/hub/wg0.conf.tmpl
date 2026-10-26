@@ -5,10 +5,10 @@ Address = 10.77.0.1/24
 ListenPort = 51820
 PrivateKey = __HUB_PRIVATE_KEY__
 PostUp = iptables -P FORWARD DROP
-PostUp = iptables -A FORWARD -i wg0 -o wg0 -s 10.77.0.3 -d 10.77.0.2 -j ACCEPT
-PostUp = iptables -A FORWARD -i wg0 -o wg0 -s 10.77.0.2 -d 10.77.0.3 -j ACCEPT
-PostUp = iptables -A FORWARD -i wg0 -o wg0 -s 10.77.0.3 -d 10.0.0.0/24 -j ACCEPT
-PostUp = iptables -A FORWARD -i wg0 -o wg0 -s 10.0.0.0/24 -d 10.77.0.3 -j ACCEPT
+PostUp = iptables -C FORWARD -i wg0 -o wg0 -s 10.77.0.3 -d 10.77.0.2 -j ACCEPT 2>/dev/null || iptables -A FORWARD -i wg0 -o wg0 -s 10.77.0.3 -d 10.77.0.2 -j ACCEPT
+PostUp = iptables -C FORWARD -i wg0 -o wg0 -s 10.77.0.2 -d 10.77.0.3 -j ACCEPT 2>/dev/null || iptables -A FORWARD -i wg0 -o wg0 -s 10.77.0.2 -d 10.77.0.3 -j ACCEPT
+PostUp = iptables -C FORWARD -i wg0 -o wg0 -s 10.77.0.3 -d 10.0.0.0/24 -j ACCEPT 2>/dev/null || iptables -A FORWARD -i wg0 -o wg0 -s 10.77.0.3 -d 10.0.0.0/24 -j ACCEPT
+PostUp = iptables -C FORWARD -i wg0 -o wg0 -s 10.0.0.0/24 -d 10.77.0.3 -j ACCEPT 2>/dev/null || iptables -A FORWARD -i wg0 -o wg0 -s 10.0.0.0/24 -d 10.77.0.3 -j ACCEPT
 
 # Peers are appended below once their public keys exist:
 # [Peer] # home (Incus container)
