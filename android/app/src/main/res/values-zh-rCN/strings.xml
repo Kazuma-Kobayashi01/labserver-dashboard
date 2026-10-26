@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LabLink</string>
+
+    <string name="tab_bot">Lab bot</string>
+    <string name="tab_panels">面板</string>
+    <string name="tab_link">连接</string>
+
+    <string name="status_off">未连接</string>
+    <string name="status_connecting">连接中…</string>
+    <string name="status_on">已连接</string>
+    <string name="status_failed">失败</string>
+
+    <string name="bot_title">Lab bot</string>
+    <string name="bot_hello">嗨，我是 Lab bot</string>
+    <string name="bot_hello_sub">有什么都可以问我，我住在你的家庭实验室里。</string>
+    <string name="bot_hint">给 Lab bot 发消息</string>
+    <string name="bot_thinking">思考中…</string>
+    <string name="bot_thought">思考过程</string>
+    <string name="bot_working">正在查资料…</string>
+    <string name="bot_new_chat">新对话</string>
+    <string name="bot_new_chat_confirm">清空当前对话？</string>
+    <string name="bot_need_connect">还没有连接到家里</string>
+    <string name="bot_need_key">请先在「连接」里填入 Lab bot 密钥</string>
+    <string name="bot_error_auth">Lab bot 密钥被拒绝了</string>
+    <string name="bot_error_unreachable">连不上 Lab bot</string>
+    <string name="bot_suggest_1">介绍一下你自己</string>
+    <string name="bot_suggest_2">你能做什么？</string>
+    <string name="bot_suggest_3">讲个有趣的冷知识</string>
+
+    <string name="panels_title">面板</string>
+    <string name="panels_need_connect">请先连接，面板只能在应用内打开</string>
+    <string name="panel_dash">仪表盘</string>
+    <string name="panel_dash_sub">服务器状态</string>
+    <string name="panel_incus">Incus</string>
+    <string name="panel_incus_sub">容器与虚拟机</string>
+    <string name="panel_mihomo">Mihomo</string>
+    <string name="panel_mihomo_sub">代理与规则</string>
+    <string name="panel_git">Git</string>
+    <string name="panel_git_sub">Forgejo 代码托管</string>
+    <string name="panel_nc">Nextcloud</string>
+    <string name="panel_nc_sub">云盘</string>
+    <string name="panel_hermes">Hermes</string>
+    <string name="panel_hermes_sub">智能体面板</string>
+    <string name="web_reload">刷新</string>
+    <string name="web_close">关闭</string>
+    <string name="web_back">返回</string>
+    <string name="web_unsupported">当前 WebView 不能走隧道，请更新「Android System WebView」。</string>
+    <string name="web_blocked">这里只能打开家里的页面</string>
+    <string name="web_error">页面加载失败</string>
+    <string name="web_login">登录</string>
+    <string name="web_user">用户名</string>
+    <string name="web_password">密码</string>
+
+    <string name="link_title">连接</string>
+    <string name="link_connect">连接家里</string>
+    <string name="link_disconnect">断开连接</string>
+    <string name="link_connecting">连接中…</string>
+    <string name="link_handshake">上次握手 %1$s 前</string>
+    <string name="link_waiting">正在等待中转点… 请检查地址和密钥</string>
+    <string name="link_in_app_only">隧道只存在于本应用内，手机上其它应用都用不了它。</string>
+    <string name="link_device">本设备</string>
+    <string name="link_device_key">公钥（交给中转点）</string>
+    <string name="link_copy">复制</string>
+    <string name="link_copied">已复制</string>
+    <string name="link_regen">换新密钥</string>
+    <string name="link_regen_confirm">要更换密钥吗？中转点上的公钥也需要同步更新。</string>
+    <string name="link_hub">中转点</string>
+    <string name="link_address">隧道内地址</string>
+    <string name="link_endpoint">中转点地址（主机:端口）</string>
+    <string name="link_hub_key">中转点公钥</string>
+    <string name="link_psk">预共享密钥（可选）</string>
+    <string name="link_import">粘贴配置</string>
+    <string name="link_import_done">已导入配置</string>
+    <string name="link_import_empty">剪贴板里没有 WireGuard 配置</string>
+    <string name="link_bot">Lab bot</string>
+    <string name="link_bot_url">接口地址</string>
+    <string name="link_bot_key">接口密钥</string>
+    <string name="link_save">保存</string>
+    <string name="link_saved">已保存</string>
+    <string name="link_missing">请先填写中转点地址和公钥</string>
+    <string name="common_cancel">取消</string>
+    <string name="common_ok">确定</string>
+</resources>

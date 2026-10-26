@@ -1,0 +1,15 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+captures/
+.kotlin/
+# the tunnel library is built from ../tunnel (./tunnel/build-aar.sh)
+app/libs/*.aar
+app/libs/*.jar
+# signing material
+*.jks
+*.keystore
+keystore.properties

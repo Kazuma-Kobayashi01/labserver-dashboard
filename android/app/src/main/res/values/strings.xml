@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LabLink</string>
+
+    <string name="tab_bot">Lab bot</string>
+    <string name="tab_panels">Panels</string>
+    <string name="tab_link">Link</string>
+
+    <string name="status_off">Not connected</string>
+    <string name="status_connecting">Connecting…</string>
+    <string name="status_on">Connected</string>
+    <string name="status_failed">Failed</string>
+
+    <string name="bot_title">Lab bot</string>
+    <string name="bot_hello">Hi, I\'m Lab bot</string>
+    <string name="bot_hello_sub">Ask me anything. I live in your home lab.</string>
+    <string name="bot_hint">Message Lab bot</string>
+    <string name="bot_thinking">Thinking…</string>
+    <string name="bot_thought">Thoughts</string>
+    <string name="bot_working">Looking things up…</string>
+    <string name="bot_new_chat">New chat</string>
+    <string name="bot_new_chat_confirm">Clear this conversation?</string>
+    <string name="bot_need_connect">Not connected to home yet</string>
+    <string name="bot_need_key">Add the Lab bot key in Link settings first</string>
+    <string name="bot_error_auth">The Lab bot key was rejected</string>
+    <string name="bot_error_unreachable">Lab bot is not reachable</string>
+    <string name="bot_suggest_1">Introduce yourself</string>
+    <string name="bot_suggest_2">What can you do?</string>
+    <string name="bot_suggest_3">Tell me a fun fact</string>
+
+    <string name="panels_title">Panels</string>
+    <string name="panels_need_connect">Connect first, panels only open inside the app</string>
+    <string name="panel_dash">Dashboard</string>
+    <string name="panel_dash_sub">Server status</string>
+    <string name="panel_incus">Incus</string>
+    <string name="panel_incus_sub">Containers &amp; VMs</string>
+    <string name="panel_mihomo">Mihomo</string>
+    <string name="panel_mihomo_sub">Proxy &amp; rules</string>
+    <string name="panel_git">Git</string>
+    <string name="panel_git_sub">Forgejo code hosting</string>
+    <string name="panel_nc">Nextcloud</string>
+    <string name="panel_nc_sub">Cloud drive</string>
+    <string name="panel_hermes">Hermes</string>
+    <string name="panel_hermes_sub">Agent dashboard</string>
+    <string name="web_reload">Reload</string>
+    <string name="web_close">Close</string>
+    <string name="web_back">Back</string>
+    <string name="web_unsupported">This WebView cannot route through the tunnel. Update \"Android System WebView\".</string>
+    <string name="web_blocked">Only home pages open here</string>
+    <string name="web_error">Could not load the page</string>
+    <string name="web_login">Sign in</string>
+    <string name="web_user">User</string>
+    <string name="web_password">Password</string>
+
+    <string name="link_title">Link</string>
+    <string name="link_connect">Connect to home</string>
+    <string name="link_disconnect">Disconnect</string>
+    <string name="link_connecting">Connecting…</string>
+    <string name="link_handshake">Last handshake %1$s ago</string>
+    <string name="link_waiting">Waiting for the hub… check the endpoint and keys</string>
+    <string name="link_in_app_only">The tunnel only exists inside this app. Nothing else on the phone uses it.</string>
+    <string name="link_device">This device</string>
+    <string name="link_device_key">Public key (give it to the hub)</string>
+    <string name="link_copy">Copy</string>
+    <string name="link_copied">Copied</string>
+    <string name="link_regen">New key</string>
+    <string name="link_regen_confirm">Replace the key? The hub must be updated with the new public key.</string>
+    <string name="link_hub">Hub</string>
+    <string name="link_address">Address in the tunnel</string>
+    <string name="link_endpoint">Hub endpoint (host:port)</string>
+    <string name="link_hub_key">Hub public key</string>
+    <string name="link_psk">Preshared key (optional)</string>
+    <string name="link_import">Paste a config</string>
+    <string name="link_import_done">Config imported</string>
+    <string name="link_import_empty">The clipboard has no WireGuard config</string>
+    <string name="link_bot">Lab bot</string>
+    <string name="link_bot_url">API address</string>
+    <string name="link_bot_key">API key</string>
+    <string name="link_save">Save</string>
+    <string name="link_saved">Saved</string>
+    <string name="link_missing">Fill in the hub endpoint and public key first</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_ok">OK</string>
+</resources>

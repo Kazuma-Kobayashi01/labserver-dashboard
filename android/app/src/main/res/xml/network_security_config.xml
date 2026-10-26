@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Plain HTTP is only allowed for the home hosts (reached through the in-app tunnel) and the loopback proxy.
+     If you change the domain in Link settings, change it here too. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">labserver.internal</domain>
+        <domain>127.0.0.1</domain>
+        <domain>10.0.0.1</domain>
+    </domain-config>
+</network-security-config>
