@@ -37,6 +37,8 @@ moods side by side: `adb shell am start -n com.labserver.lablink/.MainActivity -
 ## Rules of thumb used in the code
 
 * Corners: 28 dp for containers, 50 % for buttons and the orb, mixed shapes only for decorative tiles.
-* Colour: dynamic colour for surfaces (Android 12+), the bot's own colour for its orb, amber for the orbit.
+* Colour: a fixed brand palette (violet primary, lavender secondary, amber tertiary), not wallpaper colours, which gave
+  grey low-contrast selections; each bot's own colour for its orb.
 * Type: `headlineMedium` / `titleLarge` with heavier weight for hero text; body text stays `bodyLarge`.
-* Motion: springs (`spring(dampingRatio = 0.7f)`) for size/shape changes; nothing loops unless the bot is busy.
+* Motion: springs for size, shape and mood changes; only the hero orb blinks while idle, everything else loops only
+  while the bot is busy.
