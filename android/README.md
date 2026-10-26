@@ -4,7 +4,7 @@ A native Android app (Kotlin, Jetpack Compose, **Material 3**) with three tabs:
 
 | Tab | What it does |
 |---|---|
-| **Lab bot** | A chat with a Hermes agent (streamed replies, collapsible "thoughts", light Markdown). Round, friendly design. |
+| **Lab bot** | Chat with Hermes (streamed replies, collapsible "thoughts", light Markdown). You can create **several bots**, each with its own name, one-line role, system prompt and orb colour, and its own conversation. Tap the bot's name in the top bar to switch, edit or add one (templates: translator, coder, writing coach, lab helper, buddy). |
 | **Panels** | Dashboard, Incus, Mihomo, Git, Nextcloud, Hermes. They open in an in-app WebView, **never** in the phone's browser. |
 | **Link** | Connect / disconnect, this device's public key, hub settings, Lab bot address and key. |
 
@@ -55,8 +55,8 @@ can also be tried on a desktop: `go run ./tunnel/cmd/labtunnel-cli config.json` 
 
 * Plain HTTP is allowed only for the home hosts and the loopback proxy (`res/xml/network_security_config.xml`). If you
   use a different home domain, change it there as well as in **Link → Advanced**.
-* The app icon and the in-app avatar are placeholders: replace `res/drawable/ic_launcher_foreground.xml`,
-  `ic_launcher_monochrome.xml` and the body of `ui/BotAvatar.kt`.
+* The logo is a glossy round orb with two slanted pill eyes (`ui/BotAvatar.kt`, `res/drawable/ic_launcher_foreground.xml`);
+  in the app it takes the bot's colour and blinks while the bot is thinking.
 * The debug APK is signed with the local debug key. For a release build create your own keystore (it is git-ignored).
 * Not done yet: a foreground service to keep the tunnel alive in the background, light/dark WebView theming, file
   downloads from panels.

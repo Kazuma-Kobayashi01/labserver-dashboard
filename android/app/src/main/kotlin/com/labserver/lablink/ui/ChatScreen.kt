@@ -1,9 +1,11 @@
 package com.labserver.lablink.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -11,8 +13,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -25,10 +27,8 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -40,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,9 +54,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.labserver.lablink.R
+import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.ChatMessage
 import com.labserver.lablink.labApp
 import com.labserver.lablink.net.BotEvent
@@ -68,10 +71,15 @@ fun ChatScreen(tunnel: TunnelState, onPill: () -> Unit, onOpenLink: () -> Unit) 
     val ui by app.chat.ui.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
     var confirmClear by remember { mutableStateOf(false) }
+    var showPicker by remember { mutableStateOf(false) }
+    // null = closed; a Bot = editing it; NEW = creating
+    var editing by remember { mutableStateOf<Bot?>(null) }
+    var creating by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val botColor = Color(ui.bot.color)
 
     // newest message at index 0 (the list is reversed), so growing replies stay pinned to the bottom
-    LaunchedEffect(ui.messages.size) { if (ui.messages.isNotEmpty()) listState.animateScrollToItem(0) }
+    LaunchedEffect(ui.messages.size, ui.bot.id) { if (ui.messages.isNotEmpty()) listState.animateScrollToItem(0) }
 
     val send = {
         app.chat.send(input)
@@ -79,12 +87,23 @@ fun ChatScreen(tunnel: TunnelState, onPill: () -> Unit, onOpenLink: () -> Unit) 
     }
 
     Column(Modifier.fillMaxSize().imePadding()) {
-        CenterAlignedTopAppBar(
+        TopAppBar(
             title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    BotAvatar(30.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text(stringResource(R.string.bot_title))
+                Row(
+                    Modifier.clickable { showPicker = true }.padding(vertical = 4.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BotAvatar(38.dp, color = botColor, thinking = ui.streaming)
+                    Column(Modifier.padding(start = 10.dp).weight(1f, fill = false)) {
+                        Text(ui.bot.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (ui.bot.role.isNotBlank()) {
+                            Text(
+                                ui.bot.role, style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.bots_title))
                 }
             },
             actions = {
@@ -98,29 +117,36 @@ fun ChatScreen(tunnel: TunnelState, onPill: () -> Unit, onOpenLink: () -> Unit) 
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (ui.messages.isEmpty()) {
-                EmptyState(onSuggest = { app.chat.send(it) })
+                EmptyState(ui.bot, onSuggest = { app.chat.send(it) })
             } else {
                 LazyColumn(
                     state = listState,
                     reverseLayout = true,
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     val msgs = ui.messages
                     items(msgs.asReversed(), key = { it.id }) { m ->
                         val last = m.id == msgs.last().id
-                        if (m.role == "user") UserBubble(m) else BotBubble(m, thinking = last && ui.streaming, working = last && ui.working)
+                        if (m.role == "user") UserBubble(m)
+                        else BotBubble(m, botColor, thinking = last && ui.streaming, working = last && ui.working)
                     }
                 }
             }
         }
 
         ui.error?.let { err ->
-            ErrorCard(err, onDismiss = app.chat::dismissError, onConnect = { app.tunnel.connect(); app.chat.dismissError() }, onOpenLink = { onOpenLink(); app.chat.dismissError() })
+            ErrorCard(
+                err,
+                onDismiss = app.chat::dismissError,
+                onConnect = { app.tunnel.connect(); app.chat.dismissError() },
+                onOpenLink = { onOpenLink(); app.chat.dismissError() },
+            )
         }
 
         InputBar(
+            hint = stringResource(R.string.bot_hint, ui.bot.name),
             value = input,
             onValueChange = { input = it },
             streaming = ui.streaming,
@@ -129,6 +155,32 @@ fun ChatScreen(tunnel: TunnelState, onPill: () -> Unit, onOpenLink: () -> Unit) 
         )
     }
 
+    if (showPicker) {
+        BotPickerSheet(
+            bots = ui.bots,
+            currentId = ui.bot.id,
+            onSelect = { app.chat.select(it.id); showPicker = false },
+            onEdit = { editing = it; showPicker = false },
+            onNew = { creating = true; showPicker = false },
+            onDismiss = { showPicker = false },
+        )
+    }
+    if (creating) {
+        BotEditorDialog(
+            initial = null, canDelete = false,
+            onSave = { app.chat.saveBot(it); app.chat.select(it.id); creating = false },
+            onDelete = {},
+            onDismiss = { creating = false },
+        )
+    }
+    editing?.let { bot ->
+        BotEditorDialog(
+            initial = bot, canDelete = ui.bots.size > 1,
+            onSave = { app.chat.saveBot(it); editing = null },
+            onDelete = { app.chat.deleteBot(bot.id); editing = null },
+            onDismiss = { editing = null },
+        )
+    }
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
@@ -145,17 +197,17 @@ fun ChatScreen(tunnel: TunnelState, onPill: () -> Unit, onOpenLink: () -> Unit) 
 }
 
 @Composable
-private fun EmptyState(onSuggest: (String) -> Unit) {
+private fun EmptyState(bot: Bot, onSuggest: (String) -> Unit) {
     Column(
         Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        BotAvatar(104.dp)
+        BotAvatar(112.dp, color = Color(bot.color))
         Spacer(Modifier.padding(8.dp))
-        Text(stringResource(R.string.bot_hello), style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.bot_hello_named, bot.name), style = MaterialTheme.typography.headlineSmall)
         Text(
-            stringResource(R.string.bot_hello_sub),
+            bot.role.ifBlank { stringResource(R.string.bot_hello_sub) },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp, bottom = 20.dp),
@@ -187,10 +239,10 @@ private fun UserBubble(m: ChatMessage) {
 }
 
 @Composable
-private fun BotBubble(m: ChatMessage, thinking: Boolean, working: Boolean) {
+private fun BotBubble(m: ChatMessage, color: Color, thinking: Boolean, working: Boolean) {
     var showThoughts by rememberSaveable(m.id) { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        BotAvatar(32.dp, Modifier.padding(top = 2.dp))
+        BotAvatar(34.dp, Modifier.padding(top = 2.dp), color = color, thinking = thinking)
         Spacer(Modifier.width(8.dp))
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -199,14 +251,9 @@ private fun BotBubble(m: ChatMessage, thinking: Boolean, working: Boolean) {
         ) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                 if (m.reasoning.isNotBlank()) {
-                    Row(
-                        Modifier.padding(bottom = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TextButton(onClick = { showThoughts = !showThoughts }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                            Text(stringResource(R.string.bot_thought), style = MaterialTheme.typography.labelLarge)
-                            Icon(if (showThoughts) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = null)
-                        }
+                    TextButton(onClick = { showThoughts = !showThoughts }, contentPadding = PaddingValues(0.dp)) {
+                        Text(stringResource(R.string.bot_thought), style = MaterialTheme.typography.labelLarge)
+                        Icon(if (showThoughts) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = null)
                     }
                     AnimatedVisibility(showThoughts) {
                         Text(
@@ -258,7 +305,7 @@ private fun ErrorCard(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: () 
 }
 
 @Composable
-private fun InputBar(value: String, onValueChange: (String) -> Unit, streaming: Boolean, onSend: () -> Unit, onStop: () -> Unit) {
+private fun InputBar(hint: String, value: String, onValueChange: (String) -> Unit, streaming: Boolean, onSend: () -> Unit, onStop: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Bottom,
@@ -267,7 +314,7 @@ private fun InputBar(value: String, onValueChange: (String) -> Unit, streaming: 
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.weight(1f),
-            placeholder = { Text(stringResource(R.string.bot_hint)) },
+            placeholder = { Text(hint, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             shape = RoundedCornerShape(28.dp),
             maxLines = 5,
             colors = TextFieldDefaults.colors(

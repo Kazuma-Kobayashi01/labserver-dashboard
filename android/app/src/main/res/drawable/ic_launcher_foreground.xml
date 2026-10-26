@@ -1,17 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Lab bot orb: glossy round body, two slanted pill eyes. Same shapes as ui/BotAvatar.kt. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <!-- face -->
-    <path android:fillColor="#FFFFFF" android:pathData="M54,56m-26,0a26,26 0,1 1,52 0a26,26 0,1 1,-52 0" />
+    <!-- body -->
+    <path android:pathData="M54,54m-31,0a31,31 0,1 1,62 0a31,31 0,1 1,-62 0">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="43" android:centerY="40" android:gradientRadius="60">
+                <item android:offset="0" android:color="#7A6FFF" />
+                <item android:offset="0.5" android:color="#4B3FD8" />
+                <item android:offset="1" android:color="#1B1458" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- gloss -->
+    <group android:rotation="-35" android:pivotX="42" android:pivotY="36">
+        <path android:fillColor="#38FFFFFF" android:pathData="M42,36m-9,0a9,5 0,1 1,18 0a9,5 0,1 1,-18 0" />
+    </group>
+    <!-- rim light -->
+    <path android:strokeColor="#A65CE1E6" android:strokeWidth="2.2" android:strokeLineCap="round"
+        android:pathData="M80.6,63.8A28,28 0,0 1,63.8,80.6" />
     <!-- eyes -->
-    <path android:fillColor="#2B2B3A" android:pathData="M45,53m-3.6,0a3.6,3.6 0,1 1,7.2 0a3.6,3.6 0,1 1,-7.2 0" />
-    <path android:fillColor="#2B2B3A" android:pathData="M63,53m-3.6,0a3.6,3.6 0,1 1,7.2 0a3.6,3.6 0,1 1,-7.2 0" />
-    <!-- cheeks -->
-    <path android:fillColor="#80FF8FB1" android:pathData="M38,62m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0" />
-    <path android:fillColor="#80FF8FB1" android:pathData="M70,62m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0" />
-    <!-- smile -->
-    <path android:strokeColor="#2B2B3A" android:strokeWidth="2.4" android:strokeLineCap="round" android:pathData="M48.5,61.5Q54,67 59.5,61.5" />
-    <!-- antenna -->
-    <path android:strokeColor="#FFC857" android:strokeWidth="3" android:strokeLineCap="round" android:pathData="M54,30L54,23" />
-    <path android:fillColor="#FFC857" android:pathData="M54,21m-4.2,0a4.2,4.2 0,1 1,8.4 0a4.2,4.2 0,1 1,-8.4 0" />
+    <group android:rotation="12" android:pivotX="45" android:pivotY="54">
+        <path android:fillColor="#FFFFFF" android:pathData="M41.7,47.4a3.3,3.3 0,0 1,6.6 0L48.3,60.6a3.3,3.3 0,0 1,-6.6 0Z" />
+    </group>
+    <group android:rotation="12" android:pivotX="63" android:pivotY="54">
+        <path android:fillColor="#FFFFFF" android:pathData="M59.7,47.4a3.3,3.3 0,0 1,6.6 0L66.3,60.6a3.3,3.3 0,0 1,-6.6 0Z" />
+    </group>
 </vector>

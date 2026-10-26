@@ -14,7 +14,7 @@
     <string name="bot_title">Lab bot</string>
     <string name="bot_hello">嗨，我是 Lab bot</string>
     <string name="bot_hello_sub">有什么都可以问我，我住在你的家庭实验室里。</string>
-    <string name="bot_hint">给 Lab bot 发消息</string>
+    <string name="bot_hint">给 %1$s 发消息</string>
     <string name="bot_thinking">思考中…</string>
     <string name="bot_thought">思考过程</string>
     <string name="bot_working">正在查资料…</string>
@@ -81,4 +81,38 @@
     <string name="link_missing">请先填写中转点地址和公钥</string>
     <string name="common_cancel">取消</string>
     <string name="common_ok">确定</string>
+
+    <string name="bot_default_name">Lab bot</string>
+    <string name="bot_default_role">你的家庭实验室小伙伴</string>
+    <string name="bot_hello_named">嗨，我是 %1$s</string>
+    <string name="bots_title">我的 bot</string>
+    <string name="bots_new">新建 bot</string>
+    <string name="bots_edit">编辑</string>
+    <string name="bot_editor_new">新建 bot</string>
+    <string name="bot_editor_edit">编辑 bot</string>
+    <string name="bot_name">名称</string>
+    <string name="bot_name_required">给它起个名字</string>
+    <string name="bot_role">角色（一句话）</string>
+    <string name="bot_prompt">系统提示词</string>
+    <string name="bot_prompt_hint">这个 bot 是谁、该怎么回答。每条消息都会带上它。</string>
+    <string name="bot_presets">从模板开始</string>
+    <string name="bot_delete">删除 bot</string>
+    <string name="bot_delete_confirm">删除这个 bot 和它的对话？</string>
+    <string name="common_save">保存</string>
+
+    <string name="preset_translator_name">翻译官</string>
+    <string name="preset_translator_role">中英互译</string>
+    <string name="preset_translator_prompt">你是一名翻译。把用户发来的内容在中文和英文之间互译：中文译成英文，其他语言译成中文。只输出译文，不要解释，除非用户要求。人名、代码和格式保持原样。</string>
+    <string name="preset_coder_name">程序员</string>
+    <string name="preset_coder_role">回答简短，直接给代码</string>
+    <string name="preset_coder_prompt">你是一位务实的资深工程师。先给出能跑的代码，再简短说明。优先最简单的方案，每个代码块标明语言，拿不准的地方要直说是猜测。</string>
+    <string name="preset_writer_name">写作教练</string>
+    <string name="preset_writer_role">把文字改得更清楚</string>
+    <string name="preset_writer_prompt">你是一位写作教练。用户发来文字时，用同一种语言把它改得更清楚、更自然，保留用户自己的口吻，然后用每条一行列出最重要的两三处修改。如果语气不明确，先问用户想要什么语气。</string>
+    <string name="preset_lab_name">实验室助手</string>
+    <string name="preset_lab_role">熟悉这个家庭实验室</string>
+    <string name="preset_lab_prompt">你是用户的家庭实验室助手。他的环境：一台 Ubuntu 家用服务器（旧笔记本改装），跑着 Incus 容器、nginx、Hermes、mihomo 和 Forgejo，从外面通过 VPS 上的 WireGuard 中转点访问。请一步一步讲解并给出准确的 shell 命令，但你自己不能执行它们，要说明这一点；凡是有破坏性或不可逆的操作，务必先提醒。</string>
+    <string name="preset_buddy_name">小伙伴</string>
+    <string name="preset_buddy_role">爱聊天，有点调皮</string>
+    <string name="preset_buddy_prompt">你是一个开朗、爱玩闹的伙伴。回答简短、温暖，偶尔用个表情，轻轻调侃，但给出的信息仍要正确有用。</string>
 </resources>

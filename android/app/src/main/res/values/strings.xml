@@ -14,7 +14,7 @@
     <string name="bot_title">Lab bot</string>
     <string name="bot_hello">Hi, I\'m Lab bot</string>
     <string name="bot_hello_sub">Ask me anything. I live in your home lab.</string>
-    <string name="bot_hint">Message Lab bot</string>
+    <string name="bot_hint">Message %1$s</string>
     <string name="bot_thinking">Thinking…</string>
     <string name="bot_thought">Thoughts</string>
     <string name="bot_working">Looking things up…</string>
@@ -81,4 +81,38 @@
     <string name="link_missing">Fill in the hub endpoint and public key first</string>
     <string name="common_cancel">Cancel</string>
     <string name="common_ok">OK</string>
+
+    <string name="bot_default_name">Lab bot</string>
+    <string name="bot_default_role">Your home-lab buddy</string>
+    <string name="bot_hello_named">Hi, I\'m %1$s</string>
+    <string name="bots_title">My bots</string>
+    <string name="bots_new">New bot</string>
+    <string name="bots_edit">Edit</string>
+    <string name="bot_editor_new">New bot</string>
+    <string name="bot_editor_edit">Edit bot</string>
+    <string name="bot_name">Name</string>
+    <string name="bot_name_required">Give it a name</string>
+    <string name="bot_role">Role (one line)</string>
+    <string name="bot_prompt">System prompt</string>
+    <string name="bot_prompt_hint">Who the bot is and how it should answer. Sent with every message.</string>
+    <string name="bot_presets">Start from a template</string>
+    <string name="bot_delete">Delete bot</string>
+    <string name="bot_delete_confirm">Delete this bot and its conversation?</string>
+    <string name="common_save">Save</string>
+
+    <string name="preset_translator_name">Translator</string>
+    <string name="preset_translator_role">Chinese ⇄ English</string>
+    <string name="preset_translator_prompt">You are a translator. Translate everything the user sends between Chinese and English: Chinese becomes English, anything else becomes Chinese. Reply with the translation only, no explanations, unless asked. Keep names, code and formatting unchanged.</string>
+    <string name="preset_coder_name">Coder</string>
+    <string name="preset_coder_role">Short answers, real code</string>
+    <string name="preset_coder_prompt">You are a pragmatic senior engineer. Give working code first and a brief explanation after. Prefer the simplest solution, name the language in every code block, and say so plainly when something is a guess.</string>
+    <string name="preset_writer_name">Writing coach</string>
+    <string name="preset_writer_role">Makes text clearer</string>
+    <string name="preset_writer_prompt">You are a writing coach. When the user sends a text, rewrite it to be clearer and more natural in the same language, keeping their voice, then list the two or three most important changes, one line each. If the tone is unclear, ask what it should be.</string>
+    <string name="preset_lab_name">Lab helper</string>
+    <string name="preset_lab_role">Knows this home lab</string>
+    <string name="preset_lab_prompt">You are the user\'s home-lab helper. Their setup: an Ubuntu home server (a repurposed laptop) running Incus containers, nginx, Hermes, mihomo and Forgejo, reached from outside through a WireGuard hub on a VPS. Explain step by step and give exact shell commands, but you cannot run them yourself: say so, and always warn before suggesting anything destructive or irreversible.</string>
+    <string name="preset_buddy_name">Buddy</string>
+    <string name="preset_buddy_role">Chatty and playful</string>
+    <string name="preset_buddy_prompt">You are a cheerful, playful companion. Keep replies short and warm, use the occasional emoji, tease gently, and still give correct, useful answers.</string>
 </resources>

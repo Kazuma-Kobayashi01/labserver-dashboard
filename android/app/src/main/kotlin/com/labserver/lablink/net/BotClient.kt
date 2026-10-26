@@ -38,7 +38,8 @@ sealed interface BotEvent {
  */
 class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) {
 
-    fun stream(history: List<ChatMessage>): Flow<BotEvent> = callbackFlow {
+    /** [systemPrompt] (the bot's role) is sent as the first message of every request; blank = the server's default persona. */
+    fun stream(history: List<ChatMessage>, systemPrompt: String = ""): Flow<BotEvent> = callbackFlow {
         val port = tunnel.proxyPort.value
         var call: Call? = null
         when {
@@ -56,7 +57,7 @@ class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) 
                     .connectTimeout(15, TimeUnit.SECONDS)
                     .readTimeout(120, TimeUnit.SECONDS) // the server sends a keepalive every 10 s
                     .build()
-                val c = client.newCall(request(history))
+                val c = client.newCall(request(history, systemPrompt))
                 call = c
                 launch(Dispatchers.IO) {
                     try {
@@ -84,8 +85,9 @@ class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) 
         awaitClose { call?.cancel() }
     }
 
-    private fun request(history: List<ChatMessage>): Request {
+    private fun request(history: List<ChatMessage>, systemPrompt: String): Request {
         val messages = JSONArray()
+        if (systemPrompt.isNotBlank()) messages.put(JSONObject().put("role", "system").put("content", systemPrompt.trim()))
         history.filter { it.content.isNotBlank() }.takeLast(MAX_HISTORY).forEach {
             messages.put(JSONObject().put("role", it.role).put("content", it.content))
         }

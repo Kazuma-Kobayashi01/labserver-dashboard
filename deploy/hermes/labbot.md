@@ -14,7 +14,8 @@ hermes profile create labbot --clone-from default --no-alias --description "Lab 
 # no shell, no files, no browser, no delegation, no cron: chat, web search, vision, notes, planning only
 hermes -p labbot tools disable terminal file code_execution browser delegation cronjob computer_use \
     connections image_gen tts skills --platform api_server
-$EDITOR ~/.hermes/profiles/labbot/SOUL.md      # persona (friendly, short answers, replies in the user's language)
+$EDITOR ~/.hermes/profiles/labbot/SOUL.md      # neutral base: friendly, short answers, replies in the user's language,
+                                               # and "a system message gives you a name and role: adopt it fully"
 ```
 
 The profile has **its own API key**; a named profile never falls back to the owner's key.
@@ -59,6 +60,12 @@ sudo install -m 644 deploy/nginx/bot /etc/nginx/sites-available/bot
 sudo ln -s /etc/nginx/sites-available/bot /etc/nginx/sites-enabled/bot
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+## Several bots
+
+The Android app keeps a list of bots (name, role, system prompt, colour) and sends the selected bot's system prompt as the
+first `system` message of every request. All of them share this one restricted profile, so they all have the same tools;
+only the persona changes. The profile's `SOUL.md` is deliberately neutral so a system message fully takes over.
 
 ## Why it is built this way
 

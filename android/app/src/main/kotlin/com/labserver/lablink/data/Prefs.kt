@@ -56,6 +56,11 @@ class Prefs(context: Context) {
         get() = secret("botKey")
         set(v) = putSecret("botKey", v)
 
+    /** The bot shown in the Lab bot tab. */
+    var currentBotId: String
+        get() = sp.getString("currentBotId", DEFAULT_BOT_ID) ?: DEFAULT_BOT_ID
+        set(v) = sp.edit().putString("currentBotId", v).apply()
+
     val effectiveBotUrl: String get() = botBaseUrl.ifBlank { "http://bot.$domain/p/labbot/v1" }
 
     private fun secret(name: String): String = sp.getString(name, null)?.let { vault.open(it) } ?: ""
