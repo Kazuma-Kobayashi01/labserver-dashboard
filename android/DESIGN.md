@@ -34,6 +34,18 @@ moods side by side: `adb shell am start -n com.labserver.lablink/.MainActivity -
 
 <img src="../docs/images/labbot-orb-moods.gif" width="270" alt="Lab bot orb: thinking, searching, answering" />
 
+## Polish pass (references: Perplexity, Pi, Claude, Gemini)
+
+* **Type**: Nunito (rounded, SIL OFL, bundled; `NUNITO-OFL.txt`), body 16 sp on a 26 sp line, bold headings; Chinese falls
+  back to the system font. The rounded letterforms echo the round orb.
+* **Per-bot colour wash**: each bot tints the chat background (a soft gradient from the top, like Pi's warm
+  backgrounds), the user's bubbles and the suggestion cards with its own colour. Switching bots changes the mood.
+* **Replies read like a page** (Claude/Gemini/Perplexity): generous line height; headings, lists, quotes, rules, tables,
+  links; code blocks with a header (language, copy button); a quiet row of copy / regenerate under finished replies.
+* **Composer**: one bordered, softly raised container; send button morphs into stop on a spring.
+* **Details**: items animate in, a jump-to-latest button after scrolling up, a light haptic on send and when a reply
+  completes, a tonal pill for the bot switcher, a glow behind the hero orb, icons on the suggestion cards.
+
 ## Rules of thumb used in the code
 
 * Corners: 28 dp for containers, 50 % for buttons and the orb, mixed shapes only for decorative tiles.

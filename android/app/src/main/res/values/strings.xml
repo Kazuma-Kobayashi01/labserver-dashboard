@@ -126,4 +126,6 @@
     <string name="link_domain">Home domain</string>
     <string name="link_tunnel_host">Server address inside the tunnel</string>
     <string name="link_allowed_ips">Allowed IPs</string>
+    <string name="bot_copy">Copy</string>
+    <string name="bot_regenerate">Regenerate</string>
 </resources>

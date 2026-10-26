@@ -126,4 +126,6 @@
     <string name="link_domain">家里的域名</string>
     <string name="link_tunnel_host">隧道内的服务器地址</string>
     <string name="link_allowed_ips">允许的地址段</string>
+    <string name="bot_copy">复制</string>
+    <string name="bot_regenerate">重新生成</string>
 </resources>

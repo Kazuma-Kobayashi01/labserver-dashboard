@@ -9,14 +9,17 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -34,7 +37,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.Lightbulb
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.WavingHand
 import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -55,15 +66,30 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import android.content.ClipData
+import android.content.ClipboardManager
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -94,7 +120,12 @@ fun ChatScreen(
     var confirmClear by remember { mutableStateOf(false) }
     var showPicker by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     val botColor = Color(ui.bot.color)
+    val surface = MaterialTheme.colorScheme.surface
+    val tint = if (isSystemInDarkTheme()) 0.16f else 0.09f
+    val haptic = LocalHapticFeedback.current
+    val jumpVisible by remember { derivedStateOf { listState.firstVisibleItemIndex > 1 } }
     // the reply being written right now, if any: drives the orb's mood in the top bar
     val live = ui.messages.lastOrNull()?.takeIf { ui.streaming && it.role == "assistant" }
     val liveMood = orbMood(ui.streaming, ui.working, !live?.content.isNullOrBlank())
@@ -103,11 +134,23 @@ fun ChatScreen(
     LaunchedEffect(ui.messages.size, ui.bot.id) { if (ui.messages.isNotEmpty()) listState.animateScrollToItem(0) }
 
     val send = {
+        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
         app.chat.send(input)
         input = ""
     }
+    // a light tick when a reply is finished
+    var wasStreaming by remember { mutableStateOf(false) }
+    LaunchedEffect(ui.streaming) {
+        if (wasStreaming && !ui.streaming && ui.error == null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        wasStreaming = ui.streaming
+    }
 
-    Column(Modifier.fillMaxSize().imePadding()) {
+    // every bot washes the screen in its own colour, very softly (as Pi does with its warm backgrounds)
+    Column(
+        Modifier.fillMaxSize()
+            .background(Brush.verticalGradient(listOf(lerp(surface, botColor, tint), surface), endY = 1400f))
+            .imePadding(),
+    ) {
         CenterAlignedTopAppBar(
             navigationIcon = {
                 IconButton(onClick = onOpenDrawer) {
@@ -125,7 +168,10 @@ fun ChatScreen(
             title = {
                 // bot switcher, Gemini style: the name with a chevron
                 Row(
-                    Modifier.clip(RoundedCornerShape(50)).clickable { showPicker = true }.padding(horizontal = 10.dp, vertical = 6.dp),
+                    Modifier.clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.85f))
+                        .clickable { showPicker = true }
+                        .padding(start = 8.dp, end = 10.dp, top = 5.dp, bottom = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     BotAvatar(28.dp, color = botColor, mood = liveMood, talk = (live?.content?.length ?: 0) / 16, alive = true)
@@ -140,6 +186,7 @@ fun ChatScreen(
                 }
             },
             windowInsets = WindowInsets(0),
+            colors = androidx.compose.material3.TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
         )
 
         AnimatedVisibility(tunnel !is TunnelState.On, enter = expandVertically(), exit = shrinkVertically()) {
@@ -160,10 +207,26 @@ fun ChatScreen(
                     val msgs = ui.messages
                     items(msgs.asReversed(), key = { it.id }) { m ->
                         val last = m.id == msgs.last().id
-                        if (m.role == "user") UserBubble(m)
-                        else BotReply(m, ui.bot, thinking = last && ui.streaming, working = last && ui.working)
+                        if (m.role == "user") UserBubble(m, botColor, Modifier.animateItem())
+                        else BotReply(
+                            m, ui.bot, thinking = last && ui.streaming, working = last && ui.working,
+                            canRegenerate = last && !ui.streaming, onRegenerate = app.chat::regenerate,
+                            modifier = Modifier.animateItem(),
+                        )
                     }
                 }
+            }
+            // jump back to the newest message after scrolling up
+            androidx.compose.animation.AnimatedVisibility(
+                jumpVisible, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
+                enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut(),
+            ) {
+                Surface(
+                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                    shape = CircleShape, shadowElevation = 4.dp, tonalElevation = 3.dp,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.size(42.dp),
+                ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.ArrowDownward, contentDescription = null, modifier = Modifier.size(20.dp)) } }
             }
         }
 
@@ -231,46 +294,51 @@ private fun OfflineBanner(tunnel: TunnelState, onConnect: () -> Unit) {
     }
 }
 
-/** Hero moment: the bot's planet-orb, its greeting in big type, and four suggestion cards. */
+/** Hero moment: the bot's orb on a soft glow of its colour, the greeting in big type, and four suggestion cards. */
 @Composable
 private fun EmptyState(bot: Bot, onSuggest: (String) -> Unit) {
-    val suggestions = listOf(R.string.bot_suggest_1, R.string.bot_suggest_2, R.string.bot_suggest_3, R.string.bot_suggest_4).map { stringResource(it) }
+    val botColor = Color(bot.color)
+    val cards: List<Pair<ImageVector, Int>> = listOf(
+        Icons.Rounded.WavingHand to R.string.bot_suggest_1,
+        Icons.Rounded.AutoAwesome to R.string.bot_suggest_2,
+        Icons.Rounded.Lightbulb to R.string.bot_suggest_3,
+        Icons.Rounded.Event to R.string.bot_suggest_4,
+    )
     Column(
         Modifier.fillMaxSize().padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        BotHero(150.dp, color = Color(bot.color))
+        Box(contentAlignment = Alignment.Center) {
+            Box(Modifier.size(300.dp).background(Brush.radialGradient(listOf(botColor.copy(alpha = 0.22f), Color.Transparent))))
+            BotHero(132.dp, color = botColor)
+        }
         Text(
             stringResource(R.string.bot_hello_named, cjkSpaced(bot.name)),
             style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = 2.dp),
         )
         Text(
             bot.role.ifBlank { stringResource(R.string.bot_hello_sub) },
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 6.dp, bottom = 28.dp),
+            modifier = Modifier.padding(top = 4.dp, bottom = 26.dp),
         )
-        for (row in suggestions.chunked(2)) {
+        for (row in cards.chunked(2)) {
             Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { s ->
+                row.forEach { (icon, res) ->
+                    val label = stringResource(res)
                     Surface(
-                        onClick = { onSuggest(s) },
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        shape = RoundedCornerShape(24.dp),
-                        modifier = Modifier.weight(1f).heightIn(min = 76.dp),
+                        onClick = { onSuggest(label) },
+                        color = lerp(MaterialTheme.colorScheme.surfaceContainerHigh, botColor, 0.10f),
+                        shape = RoundedCornerShape(26.dp),
+                        modifier = Modifier.weight(1f).heightIn(min = 92.dp),
                     ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                            Text(s, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
-                            Icon(
-                                Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.align(Alignment.End).padding(top = 6.dp).size(18.dp),
-                            )
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                            Icon(icon, contentDescription = null, tint = botColor, modifier = Modifier.size(22.dp))
+                            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.padding(top = 14.dp))
                         }
                     }
                 }
@@ -281,10 +349,10 @@ private fun EmptyState(bot: Bot, onSuggest: (String) -> Unit) {
 
 /** The user's turn: a soft tonal bubble on the right. */
 @Composable
-private fun UserBubble(m: ChatMessage) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+private fun UserBubble(m: ChatMessage, botColor: Color, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            color = lerp(MaterialTheme.colorScheme.surfaceContainerHigh, botColor, 0.12f),
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 8.dp),
             modifier = Modifier.widthIn(max = 300.dp).padding(start = 48.dp),
         ) {
@@ -301,9 +369,12 @@ private fun UserBubble(m: ChatMessage) {
 
 /** The bot's turn: no bubble, a page of text under its orb and name (as in Gemini and Claude). */
 @Composable
-private fun BotReply(m: ChatMessage, bot: Bot, thinking: Boolean, working: Boolean) {
+private fun BotReply(
+    m: ChatMessage, bot: Bot, thinking: Boolean, working: Boolean,
+    canRegenerate: Boolean, onRegenerate: () -> Unit, modifier: Modifier = Modifier,
+) {
     var showThoughts by rememberSaveable(m.id) { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth()) {
+    Column(modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             BotAvatar(26.dp, color = Color(bot.color), mood = orbMood(thinking, working, m.content.isNotBlank()), talk = m.content.length / 16)
             Text(
@@ -337,7 +408,10 @@ private fun BotReply(m: ChatMessage, bot: Bot, thinking: Boolean, working: Boole
                 }
             }
             when {
-                m.content.isNotBlank() -> SelectionContainer { MarkdownText(m.content, MaterialTheme.colorScheme.onSurface) }
+                m.content.isNotBlank() -> {
+                    SelectionContainer { MarkdownText(m.content, MaterialTheme.colorScheme.onSurface) }
+                    if (!thinking) ReplyActions(m.content, canRegenerate, onRegenerate)
+                }
                 thinking -> Text(
                     stringResource(if (working) R.string.bot_working else R.string.bot_thinking),
                     style = MaterialTheme.typography.bodyLarge,
@@ -378,9 +452,12 @@ private fun ErrorStrip(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: ()
 @Composable
 private fun Composer(hint: String, value: String, onValueChange: (String) -> Unit, streaming: Boolean, onSend: () -> Unit, onStop: () -> Unit) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(28.dp),
-        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        shape = RoundedCornerShape(30.dp),
+        tonalElevation = 2.dp,
+        shadowElevation = 3.dp,
+        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f), RoundedCornerShape(30.dp)),
     ) {
         Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
             TextField(
@@ -433,4 +510,33 @@ private fun Composer(hint: String, value: String, onValueChange: (String) -> Uni
 private fun cjkSpaced(name: String): String {
     val zh = LocalContext.current.resources.configuration.locales[0].language == "zh"
     return if (zh && name.firstOrNull()?.let { it.code < 0x2E80 } == true) " $name " else name
+}
+
+/** Small, quiet actions under a finished reply: copy it, or ask again. */
+@Composable
+private fun ReplyActions(content: String, canRegenerate: Boolean, onRegenerate: () -> Unit) {
+    val ctx = LocalContext.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(1500); copied = false } }
+    Row(Modifier.padding(top = 2.dp).offset(x = (-10).dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(
+            onClick = {
+                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("reply", content))
+                copied = true
+            },
+            modifier = Modifier.size(38.dp),
+        ) {
+            Icon(
+                if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
+                contentDescription = stringResource(R.string.bot_copy),
+                tint = if (copied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        if (canRegenerate) {
+            IconButton(onClick = onRegenerate, modifier = Modifier.size(38.dp)) {
+                Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.bot_regenerate), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(19.dp))
+            }
+        }
+    }
 }

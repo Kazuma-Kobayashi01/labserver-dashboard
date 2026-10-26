@@ -77,5 +77,5 @@ private val RoundShapes = Shapes(
 @Composable
 fun LabLinkTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val colors = if (dark) DarkColors else LightColors
-    MaterialTheme(colorScheme = colors, shapes = RoundShapes, content = content)
+    MaterialTheme(colorScheme = colors, shapes = RoundShapes, typography = LabTypography, content = content)
 }

@@ -99,6 +99,19 @@ class ChatController(
         job?.cancel()
     }
 
+    /** Throws the last reply away and asks again with the last thing the user said. */
+    fun regenerate() {
+        val cur = _ui.value
+        if (cur.streaming) return
+        val at = cur.messages.indexOfLast { it.role == "user" }
+        if (at < 0) return
+        val text = cur.messages[at].content
+        val kept = cur.messages.take(at)
+        store.save(kept)
+        _ui.update { it.copy(messages = kept, error = null) }
+        send(text)
+    }
+
     fun clear() {
         job?.cancel()
         store.save(emptyList())
