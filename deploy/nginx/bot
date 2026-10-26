@@ -1,0 +1,18 @@
+# Lab bot API: exposes only the chat endpoints of the Hermes API server (loopback :8642) for the `labbot` profile.
+# Hermes itself checks the profile-scoped Bearer key (API_SERVER_KEY in ~/.hermes/profiles/labbot/.env); everything else
+# (other profiles, sessions, cron, uploads, ...) is deliberately not proxied. Reachable only through the tunnel or LAN.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name bot.labserver.internal;
+    client_max_body_size 20m;          # images sent as data: URLs
+    proxy_buffering off;               # server-sent events must not be buffered
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+
+    location = /p/labbot/v1/chat/completions { include snippets/labbot-proxy.conf; }
+    location = /p/labbot/v1/models           { include snippets/labbot-proxy.conf; }
+    location = /p/labbot/v1/capabilities     { include snippets/labbot-proxy.conf; }
+
+    location / { return 404; }
+}
