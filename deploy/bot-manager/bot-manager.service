@@ -1,0 +1,23 @@
+# /etc/systemd/system/bot-manager.service (inside the `hermes` Incus container)
+[Unit]
+Description=bot-manager: sandboxed Lab bots (create / list / trash / chat)
+After=network-online.target docker.service hermes-gateway.service
+Wants=docker.service
+
+[Service]
+User=jackson-hao
+Group=jackson-hao
+SupplementaryGroups=docker
+EnvironmentFile=/etc/bot-manager.env
+ExecStart=/usr/bin/python3 /opt/bot-manager/bot_manager.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/home/jackson-hao/.hermes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target

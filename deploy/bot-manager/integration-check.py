@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""End-to-end check on the server (inside the `hermes` container): create a bot, make its sandbox run commands, prove the
+sandbox cannot reach the home network, then trash / restore / purge it and verify nothing is left behind.
+  incus exec hermes -- su - jackson-hao -c 'python3 /opt/bot-manager/integration-check.py'
+"""
+import json
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+BASE = "http://127.0.0.1:8650"
+HOME = os.path.expanduser("~/.hermes")
+KEY = next(l.split("=", 1)[1].strip() for l in open("/etc/bot-manager.env") if l.startswith("MANAGER_KEY="))
+failed = []
+
+
+def call(method, path, body=None, timeout=200):
+    req = urllib.request.Request(BASE + path, method=method, data=None if body is None else json.dumps(body).encode(),
+                                 headers={"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read() or b"{}")
+
+
+def check(name, ok, detail=""):
+    print(("PASS " if ok else "FAIL ") + name + (f"  [{detail}]" if detail and not ok else ""))
+    if not ok:
+        failed.append(name)
+
+
+def ask(bid, text):
+    s, r = call("POST", f"/m/v1/bots/{bid}/chat/completions", {"messages": [{"role": "user", "content": text}]})
+    return r["choices"][0]["message"]["content"] if s == 200 else f"HTTP {s} {r}"
+
+
+def docker_ids(bid):
+    out = subprocess.run("docker ps -a -q", shell=True, capture_output=True, text=True).stdout.split()
+    if not out:
+        return []
+    ins = subprocess.run(["docker", "inspect", "--format", "{{.Id}} {{range .Mounts}}{{.Source}} {{end}}"] + out,
+                         capture_output=True, text=True).stdout
+    return [l.split()[0] for l in ins.splitlines() if f"/{bid}/" in l]
+
+
+s, r = call("POST", "/m/v1/bots", {"name": "Check bot", "role": "integration test", "systemPrompt": "Answer in one short line.", "color": 4283215584})
+check("create", s == 201, str(r))
+bid = r.get("id", "")
+try:
+    check("profile exists", os.path.isdir(f"{HOME}/profiles/{bid}"))
+    ans = ask(bid, "Use the terminal tool to run exactly: echo hello-from-sandbox; hostname. Reply with only the output.")
+    check("terminal runs in a sandbox", "hello-from-sandbox" in ans and docker_ids(bid), ans[:200])
+    check("sandbox is listed as running", any(b["id"] == bid and b["sandbox"] == "running" for b in call("GET", "/m/v1/bots")[1]["bots"]))
+    probe = ("python3 -c \"import urllib.request as u,sys\n"
+             "for url in ['https://example.com','http://10.0.0.10/','http://10.0.0.1/','http://192.168.1.240/']:\n"
+             "    try: print(url, 'REACHED', u.urlopen(url, timeout=5).status)\n"
+             "    except Exception as e: print(url, 'REACHED' if getattr(e,'code',None) else 'BLOCKED', getattr(e,'code',''))\"")
+    ans = ask(bid, "Use the terminal tool to run exactly this command and reply with only its raw output lines: " + probe)
+    print("   network answer:", " | ".join(l.strip() for l in ans.splitlines() if l.strip())[:300])
+    check("internet reachable", "example.com REACHED" in ans, ans[:300])
+    check("home network blocked", all(f"{h} BLOCKED" in ans for h in ("10.0.0.10/", "10.0.0.1/", "192.168.1.240/")), ans[:300])
+    s, _ = call("DELETE", f"/m/v1/bots/{bid}")
+    check("trash", s == 200 and not os.path.isdir(f"{HOME}/profiles/{bid}") and os.path.isdir(f"{HOME}/bot-manager/trash/{bid}"))
+    check("trash removed the sandbox", not docker_ids(bid))
+    s, _ = call("POST", f"/m/v1/bots/{bid}/restore")
+    check("restore", s == 200 and os.path.isdir(f"{HOME}/profiles/{bid}"))
+    check("restored bot still answers", "HTTP" not in ask(bid, "Say ok."))
+    call("DELETE", f"/m/v1/bots/{bid}")
+    s, _ = call("DELETE", f"/m/v1/bots/{bid}?purge=1")
+    check("purge", s == 200)
+    check("nothing left", not os.path.exists(f"{HOME}/profiles/{bid}") and not os.path.exists(f"{HOME}/bot-manager/trash/{bid}") and not docker_ids(bid))
+    lst = call("GET", "/m/v1/bots")[1]
+    check("gone from the lists", all(b["id"] != bid for b in lst["bots"] + lst["trash"]))
+finally:
+    pass
+print("\nALL PASSED" if not failed else f"\nFAILED: {failed}")
+sys.exit(1 if failed else 0)
