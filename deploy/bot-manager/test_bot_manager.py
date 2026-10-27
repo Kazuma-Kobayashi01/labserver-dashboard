@@ -315,6 +315,93 @@ class Models(Base):
         self.assertEqual(len(Upstream.seen), before)
 
 
+class Files(Base):
+    def upload(self, bid, name, data, key=KEY):
+        from urllib.parse import quote
+        req = urllib.request.Request(self.base + f"/m/v1/bots/{bid}/files", method="POST", data=data,
+                                     headers={"Authorization": f"Bearer {key}", "X-Filename": quote(name), "Content-Type": "application/octet-stream"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    def folder(self, bid):
+        return os.path.join(self.cfg.profiles, bid, "attachments")
+
+    def test_a_file_lands_in_the_bots_attachments_and_the_sandbox_path_is_returned(self):
+        b = self.make("A")
+        s, r = self.upload(b["id"], "报告 v2.pdf", b"%PDF-data")
+        self.assertEqual(s, 201)
+        self.assertEqual((r["name"], r["size"], r["path"]), ("报告 v2.pdf", 9, "/root/.hermes/attachments/报告 v2.pdf"))
+        self.assertEqual(open(os.path.join(self.folder(b["id"]), "报告 v2.pdf"), "rb").read(), b"%PDF-data")
+        self.assertEqual([n for n in os.listdir(self.folder(b["id"])) if n.startswith(".upload")], [])
+
+    def test_names_cannot_escape_and_duplicates_get_a_suffix(self):
+        b = self.make("A")
+        for evil in ("../../etc/passwd", "..\\..\\x.txt", "/abs/path/x.txt", ".hidden", "a\x00b.txt"):
+            s, r = self.upload(b["id"], evil, b"x")
+            self.assertEqual(s, 201, evil)
+            self.assertNotIn("..", r["name"])
+            self.assertFalse(r["name"].startswith("."))
+            self.assertTrue(os.path.realpath(os.path.join(self.folder(b["id"]), r["name"])).startswith(os.path.realpath(self.folder(b["id"]))))
+        self.assertEqual(self.upload(b["id"], "n.txt", b"1")[1]["name"], "n.txt")
+        self.assertEqual(self.upload(b["id"], "n.txt", b"2")[1]["name"], "n-2.txt")
+        self.assertEqual(self.upload(b["id"], "n.txt", b"3")[1]["name"], "n-3.txt")
+
+    def test_limits_and_unknown_bots(self):
+        b = self.make("A")
+        self.assertEqual(self.upload(b["id"], "x", b"")[0], 400)
+        self.cfg.bot_storage = 10
+        self.assertEqual(self.upload(b["id"], "a", b"12345678")[0], 201)
+        s, r = self.upload(b["id"], "b", b"12345678")
+        self.assertEqual((s, r["error"]["code"]), (413, "bot_storage_full"))
+        self.assertEqual(self.upload("b0000000000", "x", b"1")[0], 404)
+        self.assertEqual(self.upload(b["id"], "x", b"1", key="wrong")[0], 401)
+        self.call("DELETE", f"/m/v1/bots/{b['id']}")
+        self.assertEqual(self.upload(b["id"], "x", b"1")[0], 404)
+
+    def test_an_upload_over_the_cap_is_refused_before_it_is_read(self):
+        b = self.make("A")
+        old = bm.MAX_UPLOAD
+        bm.MAX_UPLOAD = 4
+        try:
+            s, r = self.upload(b["id"], "big", b"12345")
+        finally:
+            bm.MAX_UPLOAD = old
+        self.assertEqual((s, r["error"]["code"]), (413, "too_large"))
+        self.assertFalse(os.path.isdir(self.folder(b["id"])) and os.listdir(self.folder(b["id"])))
+
+
+class Images(Base):
+    URL = "data:image/jpeg;base64,/9j/4AAQ"
+
+    def chat(self, bid, content):
+        return self.call("POST", f"/m/v1/bots/{bid}/chat/completions", {"messages": [{"role": "user", "content": content}]})
+
+    def test_text_and_inline_images_are_forwarded(self):
+        b = self.make("A")
+        parts = [{"type": "text", "text": "what is this?"}, {"type": "image_url", "image_url": {"url": self.URL}}]
+        self.assertEqual(self.chat(b["id"], parts)[0], 200)
+        self.assertEqual(Upstream.seen[-1][2]["messages"][0]["content"], parts)
+
+    def test_remote_urls_and_odd_parts_are_refused(self):
+        b = self.make("A")
+        before = len(Upstream.seen)
+        for bad in ([{"type": "image_url", "image_url": {"url": "http://10.0.0.10/secret.png"}}],
+                    [{"type": "image_url", "image_url": {"url": "file:///etc/passwd"}}],
+                    [{"type": "image_url", "image_url": {"url": "data:text/html;base64,AAAA"}}],
+                    [{"type": "video", "url": "x"}], [], 5):
+            self.assertEqual(self.chat(b["id"], bad)[0], 400, bad)
+        self.assertEqual(len(Upstream.seen), before)
+
+    def test_too_many_images(self):
+        b = self.make("A")
+        parts = [{"type": "image_url", "image_url": {"url": self.URL}}] * (bm.MAX_IMAGES + 1)
+        s, body = self.chat(b["id"], parts)
+        self.assertEqual((s, json.loads(body)["error"]["code"]), (400, "too_many_images"))
+
+
 class Janitor(Base):
     def test_unknown_profile_is_quarantined_not_deleted(self):
         os.makedirs(os.path.join(self.cfg.profiles, "b0123456789"))

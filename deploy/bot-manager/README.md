@@ -59,3 +59,11 @@ A bot may carry a default (`modelProvider`, `modelId`, `reasoning` on create/PAT
 fields. Both are checked against the catalog (400 `unknown_model` / `unknown_reasoning`) and sent to Hermes as an explicit `provider` +
 `model` + `model_options.reasoning` (Hermes ignores a bare model name; a rejected model still answers HTTP 200 with
 `finish_reason: "error"`). ChatGPT and DeepSeek logins live on the server only (`hermes auth`, `.env`).
+
+## Files and pictures
+
+`POST /m/v1/bots/{id}/files` (raw body, `X-Filename` URL-encoded, at most 25 MB, 500 MB per bot) stores a file in the bot's profile
+`attachments/` folder, which its sandbox mounts at `/root/.hermes/attachments`, and answers `{name, size, path}`; names are reduced to a plain
+name and made unique. Chat messages may carry `content` as a list of `text` and `image_url` parts; only inline `data:image/...;base64,` URLs are
+accepted (a remote URL would make Hermes fetch it on the phone's behalf), at most 8 images, 24 MB per request. nginx passes the files route with
+`client_max_body_size 26m`.

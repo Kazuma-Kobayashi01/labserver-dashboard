@@ -21,12 +21,18 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 log = logging.getLogger("bot-manager")
 
 ID_RE = re.compile(r"^b[0-9a-f]{10}$")
-MAX_BODY = 10 * 1024 * 1024
+MAX_BODY = 1024 * 1024                 # JSON bodies of the management calls
+MAX_CHAT_BODY = 24 * 1024 * 1024       # a chat may carry a few images as data URLs
+MAX_UPLOAD = 25 * 1024 * 1024          # one file for the bot's sandbox
+MAX_IMAGE_URL = 8 * 1024 * 1024
+MAX_IMAGES = 8
+MAX_TEXT_PART = 400_000
+IMAGE_PREFIXES = ("data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,", "data:image/gif;base64,")
 CHAT_FIELDS = ("messages", "stream", "temperature", "max_tokens")
 
 
@@ -55,6 +61,8 @@ class Config:
         self.port = int(e.get("LISTEN_PORT", "8650"))
         self.janitor_seconds = int(e.get("JANITOR_SECONDS", "300"))
         self.catalog_path = e.get("CATALOG_PATH", "")
+        self.bot_storage = int(e.get("BOT_STORAGE_MB", "500")) * 1024 * 1024   # attachments per bot
+        self.sandbox_attachments = e.get("SANDBOX_ATTACHMENTS", "/root/.hermes/attachments")   # where the sandbox sees them
 
     @property
     def profiles(self):
@@ -401,6 +409,59 @@ class Manager:
             self.reg.save()
             return self._view(b)
 
+    # -- files for the bot's sandbox
+    @staticmethod
+    def safe_filename(name):
+        """A plain file name: no directories, no control or path characters, never hidden, at most 120 characters."""
+        name = (name or "").replace("\\", "/").split("/")[-1]
+        name = "".join(ch for ch in name if ch.isprintable() and ch not in '<>:"|?*').strip().lstrip(".")
+        if len(name) > 120:
+            stem, dot, ext = name.rpartition(".")
+            name = (stem[: 120 - len(ext) - 1] + "." + ext) if dot and len(ext) <= 10 else name[:120]
+        return name or "file"
+
+    def attachments_dir(self, bid):
+        return os.path.join(self.profile_dir(bid), "attachments")
+
+    def store_upload(self, bid, name, stream, length):
+        """Writes one uploaded file into the bot's attachments directory (which its sandbox mounts) and returns where the
+        sandbox sees it. The data is streamed to a temporary file, so a refused upload leaves nothing behind."""
+        with self.reg.lock:
+            self._get(bid, "active")
+        if length <= 0:
+            raise ApiError(400, "bad_request", "empty file")
+        if length > MAX_UPLOAD:
+            raise ApiError(413, "too_large", f"files are limited to {MAX_UPLOAD // (1024 * 1024)} MB")
+        folder = self.attachments_dir(bid)
+        os.makedirs(folder, exist_ok=True)
+        used = sum(e.stat().st_size for e in os.scandir(folder) if e.is_file())
+        if used + length > self.cfg.bot_storage:
+            raise ApiError(413, "bot_storage_full", "this bot's file storage is full")
+        clean = self.safe_filename(name)
+        tmp = os.path.join(folder, f".upload-{secrets.token_hex(6)}")
+        try:
+            left = length
+            with open(tmp, "wb") as f:
+                while left > 0:
+                    chunk = stream.read(min(left, 256 * 1024))
+                    if not chunk:
+                        raise ApiError(400, "bad_request", "the upload ended early")
+                    f.write(chunk)
+                    left -= len(chunk)
+            stem, dot, ext = clean.rpartition(".")
+            if not dot:
+                stem, ext = clean, ""
+            final, n = clean, 1
+            while os.path.exists(os.path.join(folder, final)):
+                n += 1
+                final = f"{stem}-{n}" + (f".{ext}" if ext else "")
+            os.replace(tmp, os.path.join(folder, final))
+            os.chmod(os.path.join(folder, final), 0o644)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        return {"name": final, "size": length, "path": f"{self.cfg.sandbox_attachments}/{final}"}
+
     # -- trash / restore / purge
     def _clear_stub(self, bid):
         """After a bot is trashed the gateway may recreate `profiles/<id>` holding only its log files. Remove such a
@@ -526,9 +587,38 @@ class Manager:
 # ----------------------------------------------------------------------------------------------- HTTP
 
 
+def clean_content(content):
+    """A message's content: text, or a list of parts holding text and inline images. Only `data:image/...` URLs are let
+    through (a plain URL would make Hermes fetch it for the phone), and sizes are bounded."""
+    if isinstance(content, str):
+        if len(content) > MAX_TEXT_PART * 2:
+            raise ApiError(413, "too_large", "message too long")
+        return content
+    if not isinstance(content, list) or not content:
+        raise ApiError(400, "bad_request", "bad message content")
+    parts, images = [], 0
+    for part in content:
+        kind = part.get("type") if isinstance(part, dict) else None
+        if kind == "text" and isinstance(part.get("text"), str) and len(part["text"]) <= MAX_TEXT_PART * 2:
+            parts.append({"type": "text", "text": part["text"]})
+        elif kind == "image_url":
+            url = (part.get("image_url") or {}).get("url") if isinstance(part.get("image_url"), dict) else None
+            if not isinstance(url, str) or not url.startswith(IMAGE_PREFIXES):
+                raise ApiError(400, "bad_image", "images must be inline base64 data:image URLs")
+            if len(url) > MAX_IMAGE_URL:
+                raise ApiError(413, "too_large", "an image is too large")
+            images += 1
+            if images > MAX_IMAGES:
+                raise ApiError(400, "too_many_images", f"at most {MAX_IMAGES} images per request")
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+        else:
+            raise ApiError(400, "bad_request", "unsupported message part")
+    return parts
+
+
 def make_handler(mgr):
     cfg = mgr.cfg
-    bot_re = re.compile(r"^/m/v1/bots/(b[0-9a-f]{10})(/restore|/chat/completions)?$")
+    bot_re = re.compile(r"^/m/v1/bots/(b[0-9a-f]{10})(/restore|/chat/completions|/files)?$")
     open_paths = ("/m/v1/bots", "/m/v1/models")
 
     class Handler(BaseHTTPRequestHandler):
@@ -550,9 +640,9 @@ def make_handler(mgr):
         def _error(self, e):
             self._json(e.status, {"error": {"code": e.code, "message": e.message}})
 
-        def _body(self):
+        def _body(self, limit=MAX_BODY):
             n = int(self.headers.get("Content-Length") or 0)
-            if n > MAX_BODY:
+            if n > limit:
                 raise ApiError(413, "too_large", "request body too large")
             if n == 0:
                 return {}
@@ -592,7 +682,12 @@ def make_handler(mgr):
                 if tail == "/restore" and method == "POST":
                     return self._json(200, mgr.restore(bid))
                 if tail == "/chat/completions" and method == "POST":
-                    return self._chat(bid, self._body())
+                    return self._chat(bid, self._body(MAX_CHAT_BODY))
+                if tail == "/files" and method == "POST":
+                    name = unquote(self.headers.get("X-Filename", ""))
+                    info = mgr.store_upload(bid, name, self.rfile, int(self.headers.get("Content-Length") or 0))
+                    log.info("stored a file of %s bytes for %s", info["size"], bid)
+                    return self._json(201, info)
                 if tail is None and method == "PATCH":
                     return self._json(200, mgr.update(bid, self._body()))
                 if tail is None and method == "DELETE":
@@ -626,7 +721,7 @@ def make_handler(mgr):
                 if not isinstance(m, dict) or m.get("role") not in ("user", "assistant", "system"):
                     raise ApiError(400, "bad_request", "bad message")
                 if m["role"] != "system":  # the bot's prompt lives on the server
-                    clean.append({"role": m["role"], "content": m.get("content", "")})
+                    clean.append({"role": m["role"], "content": clean_content(m.get("content", ""))})
             if not clean:
                 raise ApiError(400, "bad_request", "no user message")
             payload = {k: body[k] for k in CHAT_FIELDS if k in body}

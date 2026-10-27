@@ -3,12 +3,16 @@
 sandbox cannot reach the home network, then trash / restore / purge it and verify nothing is left behind.
   incus exec hermes -- su - jackson-hao -c 'python3 /opt/bot-manager/integration-check.py'
 """
+import base64
 import json
 import os
+import struct
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
+import zlib
 
 BASE = "http://127.0.0.1:8650"
 HOME = os.path.expanduser("~/.hermes")
@@ -62,6 +66,27 @@ try:
     print("   network answer:", " | ".join(l.strip() for l in ans.splitlines() if l.strip())[:300])
     check("internet reachable", "example.com REACHED" in ans, ans[:300])
     check("home network blocked", all(f"{h} BLOCKED" in ans for h in ("10.0.0.10/", "10.0.0.1/", "192.168.1.240/")), ans[:300])
+    # a file uploaded through the manager shows up inside the sandbox, and an inline image is seen by the model
+    secret = "pineapple-4821"
+    req = urllib.request.Request(BASE + f"/m/v1/bots/{bid}/files", method="POST", data=f"the secret word is {secret}\n".encode(),
+                                 headers={"Authorization": f"Bearer {KEY}", "X-Filename": urllib.parse.quote("笔记 note.txt")})
+    info = json.load(urllib.request.urlopen(req, timeout=30))
+    check("upload returns the sandbox path", info["path"].endswith("/attachments/笔记 note.txt"), str(info))
+    ans = ask(bid, f"Use the terminal tool to run exactly: cat '{info['path']}'. Reply with only the raw output.")
+    check("the sandbox can read the uploaded file", secret in ans, ans[:200])
+
+    def png(w, h, rgb):
+        raw = b"".join(b"\x00" + bytes(rgb) * w for _ in range(h))
+        chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+    url = "data:image/png;base64," + base64.b64encode(png(64, 64, (220, 30, 30))).decode()
+    s2, r2 = call("POST", f"/m/v1/bots/{bid}/chat/completions", {"messages": [{"role": "user", "content": [
+        {"type": "text", "text": "What single colour fills this image? One word."}, {"type": "image_url", "image_url": {"url": url}}]}]})
+    answer = r2["choices"][0]["message"]["content"] if s2 == 200 else str(r2)
+    check("the model sees an inline image", "red" in answer.lower() or "红" in answer, answer[:200])
+    s3, _ = call("POST", f"/m/v1/bots/{bid}/chat/completions", {"messages": [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": "http://10.0.0.10/x.png"}}]}]})
+    check("a remote image URL is refused", s3 == 400, str(s3))
     s, _ = call("DELETE", f"/m/v1/bots/{bid}")
     check("trash", s == 200 and not os.path.isdir(f"{HOME}/profiles/{bid}") and os.path.isdir(f"{HOME}/bot-manager/trash/{bid}"))
     check("trash removed the sandbox", not docker_ids(bid))
