@@ -183,6 +183,31 @@ class Api(Base):
         self.assertEqual(os.listdir(self.cfg.trash), [])
         self.assertEqual(json.loads(self.call("GET", "/m/v1/bots")[1])["trash"], [])
 
+    def test_restore_and_purge_work_when_the_gateway_recreated_a_log_stub(self):
+        for action in ("restore", "purge"):
+            b = self.make(action)
+            self.call("DELETE", f"/m/v1/bots/{b['id']}")
+            stub = os.path.join(self.cfg.profiles, b["id"], "logs")
+            os.makedirs(stub)
+            open(os.path.join(stub, "agent.log"), "w").write("x")
+            if action == "restore":
+                self.assertEqual(self.call("POST", f"/m/v1/bots/{b['id']}/restore")[0], 200)
+                self.assertTrue(os.path.exists(os.path.join(self.cfg.profiles, b["id"], "state.db")))
+            else:
+                self.assertEqual(self.call("DELETE", f"/m/v1/bots/{b['id']}?purge=1")[0], 200)
+                self.assertFalse(os.path.exists(os.path.join(self.cfg.profiles, b["id"])))
+
+    def test_a_non_log_directory_in_the_way_is_never_deleted(self):
+        b = self.make("A")
+        self.call("DELETE", f"/m/v1/bots/{b['id']}")
+        os.makedirs(os.path.join(self.cfg.profiles, b["id"]))
+        keep = os.path.join(self.cfg.profiles, b["id"], "precious.txt")
+        open(keep, "w").write("x")
+        s, body = self.call("POST", f"/m/v1/bots/{b['id']}/restore")
+        self.assertEqual((s, json.loads(body)["error"]["code"]), (409, "profile_dir_busy"))
+        self.assertTrue(os.path.exists(keep))
+        self.assertTrue(os.path.exists(os.path.join(self.cfg.trash, b["id"], "state.db")))
+
     def test_purge_failure_keeps_it_in_trash(self):
         b = self.make("A")
         self.call("DELETE", f"/m/v1/bots/{b['id']}")
@@ -262,6 +287,20 @@ class Janitor(Base):
                                             "systemPrompt": "", "color": 1, "createdAt": int(time.time()) - 3600}
         self.mgr.janitor()
         self.assertNotIn("b1111111111", self.mgr.reg.bots)
+
+    def test_trash_expires_after_the_retention_period(self):
+        old, fresh = self.make("old"), self.make("fresh")
+        self.call("DELETE", f"/m/v1/bots/{old['id']}")
+        self.call("DELETE", f"/m/v1/bots/{fresh['id']}")
+        self.mgr.reg.bots[old["id"]]["trashedAt"] = int(time.time()) - 8 * 86400
+        self.mgr.reg.bots[fresh["id"]]["trashedAt"] = int(time.time()) - 6 * 86400
+        self.mgr.expire_trash()
+        ids = [b["id"] for b in json.loads(self.call("GET", "/m/v1/bots")[1])["trash"]]
+        self.assertEqual(ids, [fresh["id"]])
+        self.assertFalse(os.path.exists(os.path.join(self.cfg.trash, old["id"])))
+        listing = json.loads(self.call("GET", "/m/v1/bots")[1])
+        self.assertEqual(listing["trash"][0]["expiresAt"], self.mgr.reg.bots[fresh["id"]]["trashedAt"] + 7 * 86400)
+        self.assertEqual((listing["trashLimit"], listing["trashDays"]), (2, 7))
 
     def test_registry_survives_a_restart(self):
         b = self.make("A")

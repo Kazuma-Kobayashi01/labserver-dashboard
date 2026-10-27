@@ -51,6 +51,17 @@ class Prefs(context: Context) {
         get() = secret("tcpPrefix")
         set(v) = putSecret("tcpPrefix", v)
 
+    /** The bot-manager's Bearer key (it creates, lists and talks to the sandbox bots). */
+    var managerKey: String
+        get() = secret("managerKey")
+        set(v) = putSecret("managerKey", v)
+
+    /** Empty = the default `http://bot.<domain>/m/v1`. */
+    var managerBaseUrl: String
+        get() = sp.getString("managerBaseUrl", "") ?: ""
+        set(v) = sp.edit().putString("managerBaseUrl", v.trim().trimEnd('/')).apply()
+    val effectiveManagerUrl: String get() = managerBaseUrl.takeIf { isHttpUrl(it) } ?: "http://bot.$domain/m/v1"
+
     var privateKey: String
         get() = secret("privateKey")
         set(v) = putSecret("privateKey", v)

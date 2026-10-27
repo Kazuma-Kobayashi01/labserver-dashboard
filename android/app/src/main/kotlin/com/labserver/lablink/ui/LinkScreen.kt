@@ -73,6 +73,8 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
     var hubKey by remember { mutableStateOf(prefs.hubPublicKey) }
     var psk by remember { mutableStateOf(prefs.presharedKey) }
     var tcpUrl by remember { mutableStateOf(prefs.tcpUrl) }
+    var managerKey by remember { mutableStateOf(prefs.managerKey) }
+    var managerUrl by remember { mutableStateOf(prefs.managerBaseUrl) }
     var tcpPrefix by remember { mutableStateOf(prefs.tcpPrefix) }
     var botUrl by remember { mutableStateOf(prefs.botBaseUrl.takeIf { Prefs.isHttpUrl(it) } ?: "") }
     var botUrlError by remember { mutableStateOf(false) }
@@ -97,6 +99,8 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
         prefs.hubPublicKey = hubKey
         prefs.presharedKey = psk
         prefs.tcpUrl = tcpUrl
+        prefs.managerKey = managerKey
+        prefs.managerBaseUrl = managerUrl
         prefs.tcpPrefix = tcpPrefix
         prefs.botBaseUrl = botUrl
         prefs.botKey = botKey
@@ -159,6 +163,7 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
                         p.hubPublicKey?.let { hubKey = it }
                         p.presharedKey?.let { psk = it }
                         p.tcpUrl?.let { tcpUrl = it }
+                        p.managerKey?.let { managerKey = it }
                         p.tcpPrefix?.let { tcpPrefix = it }
                         p.allowedIPs?.let { allowedIPs = it }
                         p.privateKey?.let { prefs.privateKey = it; pub = app.tunnel.publicKey() }
@@ -174,6 +179,7 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
                     Field(domain, { domain = it }, stringResource(R.string.link_domain))
                     Field(tunnelHost, { tunnelHost = it }, stringResource(R.string.link_tunnel_host))
                     Field(allowedIPs, { allowedIPs = it }, stringResource(R.string.link_allowed_ips))
+                    Field(managerUrl, { managerUrl = it }, stringResource(R.string.link_manager_url), placeholder = "http://bot.$domain/m/v1")
                 }
             }
 
@@ -184,6 +190,8 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
                     error = if (botUrlError) stringResource(R.string.bot_error_url) else null,
                 )
                 Field(botKey, { botKey = it }, stringResource(R.string.link_bot_key), secret = true)
+                Field(managerKey, { managerKey = it }, stringResource(R.string.link_manager_key), secret = true)
+                Text(stringResource(R.string.link_manager_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Button(

@@ -11,8 +11,10 @@ data class ParsedWg(
     /** From an optional `[tcp]` section (`Url`, `Prefix`) that only this app reads. */
     val tcpUrl: String? = null,
     val tcpPrefix: String? = null,
+    /** From an optional `[manager]` section (`Key`). */
+    val managerKey: String? = null,
 ) {
-    val isEmpty get() = listOf(privateKey, address, hubPublicKey, presharedKey, endpoint, allowedIPs, tcpUrl, tcpPrefix).all { it == null }
+    val isEmpty get() = listOf(privateKey, address, hubPublicKey, presharedKey, endpoint, allowedIPs, tcpUrl, tcpPrefix, managerKey).all { it == null }
 }
 
 fun parseWgQuick(text: String): ParsedWg {
@@ -38,5 +40,6 @@ fun parseWgQuick(text: String): ParsedWg {
         allowedIPs = v["peer.allowedips"]?.replace(" ", ""),
         tcpUrl = v["tcp.url"],
         tcpPrefix = v["tcp.prefix"],
+        managerKey = v["manager.key"],
     )
 }

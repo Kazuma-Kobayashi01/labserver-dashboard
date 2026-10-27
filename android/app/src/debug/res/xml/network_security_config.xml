@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: the home hosts as in main, plus 10.0.2.2 so an emulator can reach a bot-manager forwarded to the Mac. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">labserver.internal</domain>
+        <domain>127.0.0.1</domain>
+        <domain>10.0.0.1</domain>
+        <domain>10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

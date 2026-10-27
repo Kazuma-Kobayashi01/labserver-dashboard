@@ -66,3 +66,12 @@ can also be tried on a desktop: `go run ./tunnel/cmd/labtunnel-cli config.json` 
 * The debug APK is signed with the local debug key. For a release build create your own keystore (it is git-ignored).
 * Not done yet: a foreground service to keep the tunnel alive in the background, light/dark WebView theming, file
   downloads from panels.
+
+## Sandbox bots
+
+Besides the local default `Lab` bot, the app lists the **sandbox bots** kept by the server's bot-manager
+(`deploy/bot-manager`, at most 5): create, edit, delete (to the trash for 7 days, then restore or delete for good),
+and chat through the manager. Fill in the bot manager key in Settings (or paste a `[manager]` section with `Key = ...`);
+the address defaults to `http://bot.<domain>/m/v1`. Their prompts live on the server, the conversations on the phone.
+Debug builds can point the manager address at `http://10.0.2.2:<port>` (an emulator reaching the Mac) to test without the tunnel.
+Unit tests: `./gradlew testDebugUnitTest`.

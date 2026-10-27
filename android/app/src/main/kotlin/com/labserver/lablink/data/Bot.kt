@@ -7,8 +7,9 @@ import java.io.File
 import java.util.UUID
 
 /**
- * A bot is a personality, nothing more: a name, a short role line, a system prompt and a colour. They all talk to the
- * same restricted Hermes profile on the server; the system prompt is sent with every request.
+ * The default `Lab` bot is local: a name, a role line, a system prompt and a colour, talking to the restricted Hermes
+ * `labbot` profile (the prompt is sent with every request). Sandbox bots (see [isSandbox]) are kept by the server's
+ * bot-manager, which also holds their prompt; the phone keeps only their conversations.
  */
 @Serializable
 data class Bot(
@@ -36,6 +37,44 @@ object BotColors {
 }
 
 const val DEFAULT_BOT_ID = "lab"
+
+/** Sandbox bots live on the server; their id is the one the server gave them. */
+private val SANDBOX_ID = Regex("^b[0-9a-f]{10}$")
+fun isSandboxId(id: String) = SANDBOX_ID.matches(id)
+val Bot.isSandbox: Boolean get() = isSandboxId(id)
+
+/** A bot in the server's trash; [expiresAt] (epoch seconds) is when it will be removed for good. */
+@Serializable
+data class TrashedBot(val bot: Bot, val trashedAt: Long, val expiresAt: Long? = null)
+
+/** What the server last told us, kept so the lists show something while the tunnel is down. */
+@Serializable
+data class Listing(
+    val bots: List<Bot> = emptyList(),
+    val running: Set<String> = emptySet(),
+    val trash: List<TrashedBot> = emptyList(),
+    val limit: Int = 5,
+    val trashLimit: Int = 20,
+    val trashDays: Int = 7,
+)
+
+class ListingCache(dir: File) {
+    private val file = File(dir, "remote.json")
+    private val json = Json { ignoreUnknownKeys = true }
+
+    fun load(): Listing = try {
+        if (file.exists()) json.decodeFromString(file.readText()) else Listing()
+    } catch (_: Exception) {
+        Listing()
+    }
+
+    fun save(l: Listing) {
+        try {
+            file.writeText(json.encodeToString(l))
+        } catch (_: Exception) {
+        }
+    }
+}
 
 /** The list of bots, kept as a small JSON file next to the chats. Never empty: there is always a default bot. */
 class BotStore(dir: File, private val defaultBot: () -> Bot) {

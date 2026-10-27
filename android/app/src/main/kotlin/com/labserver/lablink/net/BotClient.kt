@@ -1,7 +1,9 @@
 package com.labserver.lablink.net
 
+import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.ChatMessage
 import com.labserver.lablink.data.Prefs
+import com.labserver.lablink.data.isSandbox
 import com.labserver.lablink.tunnel.TunnelController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -28,7 +30,7 @@ sealed interface BotEvent {
     data object Tool : BotEvent
     data object Done : BotEvent
     data class Error(val kind: Kind, val detail: String = "") : BotEvent {
-        enum class Kind { NotConnected, NoKey, BadUrl, Auth, Unreachable, Other }
+        enum class Kind { NotConnected, NoKey, BadUrl, Auth, Unreachable, Gone, Other }
     }
 }
 
@@ -38,8 +40,15 @@ sealed interface BotEvent {
  */
 class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) {
 
-    /** [systemPrompt] (the bot's role) is sent as the first message of every request; blank = the server's default persona. */
-    fun stream(history: List<ChatMessage>, systemPrompt: String = ""): Flow<BotEvent> = callbackFlow {
+    /**
+     * A sandbox bot is reached through the bot-manager (its prompt lives on the server, the manager key authorises);
+     * the default bot goes straight to the `labbot` profile and sends its prompt as the first message.
+     */
+    fun stream(history: List<ChatMessage>, bot: Bot): Flow<BotEvent> = callbackFlow {
+        val sandbox = bot.isSandbox
+        val url = if (sandbox) "${prefs.effectiveManagerUrl}/bots/${bot.id}/chat/completions" else prefs.effectiveBotUrl + "/chat/completions"
+        val key = if (sandbox) prefs.managerKey else prefs.botKey
+        val systemPrompt = if (sandbox) "" else bot.systemPrompt
         val port = tunnel.proxyPort.value
         var call: Call? = null
         when {
@@ -47,7 +56,7 @@ class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) 
                 trySend(BotEvent.Error(BotEvent.Error.Kind.NotConnected))
                 close()
             }
-            prefs.botKey.isBlank() -> {
+            key.isBlank() -> {
                 trySend(BotEvent.Error(BotEvent.Error.Kind.NoKey))
                 close()
             }
@@ -58,12 +67,12 @@ class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) 
                     .readTimeout(120, TimeUnit.SECONDS) // the server sends a keepalive every 10 s
                     .build()
                 val req = try {
-                    request(history, systemPrompt)
+                    request(history, url, key, systemPrompt)
                 } catch (e: IllegalArgumentException) {
                     null // an address OkHttp cannot parse
                 }
                 if (req == null) {
-                    trySend(BotEvent.Error(BotEvent.Error.Kind.BadUrl, prefs.effectiveBotUrl))
+                    trySend(BotEvent.Error(BotEvent.Error.Kind.BadUrl, url))
                     close()
                     return@callbackFlow awaitClose {}
                 }
@@ -75,7 +84,8 @@ class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) 
                             if (!resp.isSuccessful) {
                                 val kind = when (resp.code) {
                                     401, 403 -> BotEvent.Error.Kind.Auth
-                                    404, 502, 503, 504 -> BotEvent.Error.Kind.Unreachable
+                                    404 -> if (sandbox) BotEvent.Error.Kind.Gone else BotEvent.Error.Kind.Unreachable
+                                    502, 503, 504 -> BotEvent.Error.Kind.Unreachable
                                     else -> BotEvent.Error.Kind.Other
                                 }
                                 trySend(BotEvent.Error(kind, "HTTP ${resp.code}"))
@@ -95,7 +105,7 @@ class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) 
         awaitClose { call?.cancel() }
     }
 
-    private fun request(history: List<ChatMessage>, systemPrompt: String): Request {
+    private fun request(history: List<ChatMessage>, url: String, key: String, systemPrompt: String): Request {
         val messages = JSONArray()
         if (systemPrompt.isNotBlank()) messages.put(JSONObject().put("role", "system").put("content", systemPrompt.trim()))
         history.filter { it.content.isNotBlank() }.takeLast(MAX_HISTORY).forEach {
@@ -103,8 +113,8 @@ class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) 
         }
         val body = JSONObject().put("model", "lab-bot").put("stream", true).put("messages", messages)
         return Request.Builder()
-            .url(prefs.effectiveBotUrl + "/chat/completions")
-            .header("Authorization", "Bearer ${prefs.botKey}")
+            .url(url)
+            .header("Authorization", "Bearer $key")
             .header("Accept", "text/event-stream")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()

@@ -45,6 +45,7 @@ class Config:
         self.manager_key = e.get("MANAGER_KEY", "")
         self.max_bots = int(e.get("MAX_BOTS", "5"))
         self.max_trash = int(e.get("MAX_TRASH", "20"))
+        self.trash_days = int(e.get("TRASH_DAYS", "7"))   # trashed bots are removed for good after this many days; 0 = never
         self.hermes_home = e.get("HERMES_HOME", os.path.expanduser("~/.hermes"))
         self.hermes_bin = e.get("HERMES_BIN", os.path.join(self.hermes_home, "hermes-agent/.hermes/bin/hermes"))
         self.hermes_url = e.get("HERMES_URL", "http://127.0.0.1:8642")
@@ -240,6 +241,8 @@ class Manager:
         v = {k: b.get(k) for k in ("id", "name", "role", "color", "systemPrompt", "createdAt")}
         if b["state"] == "trashed":
             v["trashedAt"] = b.get("trashedAt")
+            if self.cfg.trash_days > 0 and b.get("trashedAt"):
+                v["expiresAt"] = b["trashedAt"] + self.cfg.trash_days * 86400
         elif with_state:
             try:
                 v["sandbox"] = "running" if self.backend.sandbox_running(self.profile_dir(b["id"])) else "idle"
@@ -254,6 +257,8 @@ class Manager:
                 "bots": [self._view(b) for b in bots if b["state"] == "active"],
                 "trash": [self._view(b) for b in bots if b["state"] == "trashed"],
                 "limit": self.cfg.max_bots,
+                "trashLimit": self.cfg.max_trash,
+                "trashDays": self.cfg.trash_days,
             }
 
     def _get(self, bid, state):
@@ -331,6 +336,18 @@ class Manager:
             return self._view(b)
 
     # -- trash / restore / purge
+    def _clear_stub(self, bid):
+        """After a bot is trashed the gateway may recreate `profiles/<id>` holding only its log files. Remove such a
+        leftover so the real directory can move back; anything else there is not ours to delete."""
+        stub = self.profile_dir(bid)
+        if not os.path.lexists(stub):
+            return
+        for root, _dirs, files in os.walk(stub):
+            rel = os.path.relpath(root, stub)
+            if files and rel != "logs" and not rel.startswith("logs" + os.sep):
+                raise ApiError(409, "profile_dir_busy", "an unexpected directory is in the way; remove it by hand")
+        shutil.rmtree(stub)
+
     def trash(self, bid):
         with self.reg.lock:
             b = self._get(bid, "active")
@@ -347,6 +364,7 @@ class Manager:
             b = self._get(bid, "trashed")
             if self.reg.count("active") + self.reg.count("creating") >= self.cfg.max_bots:
                 raise ApiError(409, "limit_reached", f"at most {self.cfg.max_bots} bots; delete one first")
+            self._clear_stub(bid)
             os.replace(self.trash_dir(bid), self.profile_dir(bid))
             b["state"] = "active"
             b.pop("trashedAt", None)
@@ -360,6 +378,7 @@ class Manager:
             if b and b["state"] == "active":
                 raise ApiError(409, "not_in_trash", "move the bot to the trash first")
             self._get(bid, "trashed")
+            self._clear_stub(bid)
             os.replace(self.trash_dir(bid), self.profile_dir(bid))
             try:
                 self.backend.remove_sandboxes(self.profile_dir(bid))
@@ -414,10 +433,25 @@ class Manager:
             except Exception as e:
                 log.error("janitor sandboxes: %s", e)
 
+    def expire_trash(self):
+        """Removes bots that have been in the trash for more than `trash_days` days."""
+        if self.cfg.trash_days <= 0:
+            return
+        cutoff = time.time() - self.cfg.trash_days * 86400
+        with self.reg.lock:
+            old = [bid for bid, b in self.reg.bots.items() if b["state"] == "trashed" and b.get("trashedAt", time.time()) < cutoff]
+        for bid in old:
+            try:
+                log.info("janitor: %s was in the trash for over %s days, removing it", bid, self.cfg.trash_days)
+                self.purge(bid)
+            except ApiError:
+                pass  # kept in the trash, tried again next round
+
     def run_janitor(self):
         while True:
             try:
                 self.janitor()
+                self.expire_trash()
             except Exception:
                 log.exception("janitor failed")
             time.sleep(self.cfg.janitor_seconds)

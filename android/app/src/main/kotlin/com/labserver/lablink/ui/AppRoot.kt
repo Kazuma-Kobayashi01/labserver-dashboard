@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.DrawerValue
@@ -47,11 +48,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.labserver.lablink.R
 import com.labserver.lablink.data.Bot
+import com.labserver.lablink.data.isSandbox
+import com.labserver.lablink.net.ManagerResult
 import com.labserver.lablink.labApp
 import com.labserver.lablink.tunnel.TunnelState
 import kotlinx.coroutines.launch
 
-enum class Screen { Chat, HomeLab, Settings }
+enum class Screen { Chat, HomeLab, Settings, Trash }
 
 /**
  * Chat is home (as in Gemini / ChatGPT / Claude); everything else lives in the navigation drawer: the connection
@@ -67,11 +70,17 @@ fun AppRoot() {
     var screen by rememberSaveable { mutableStateOf(Screen.Chat) }
     var editing by remember { mutableStateOf<Bot?>(null) }
     var creating by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     // a panel's WebView needs the edge swipes for itself, so the drawer gesture is off while one is open
     var panelOpen by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    // the sandbox bots live on the server: read them when the tunnel comes up and whenever the drawer opens
+    LaunchedEffect(port) { if (app.chat.managerAvailable()) app.chat.refresh() }
+    LaunchedEffect(drawer.isOpen) { if (drawer.isOpen && app.chat.managerAvailable()) app.chat.refresh() }
 
     // WebViews in this app go through the tunnel's loopback proxy whenever it is up (and nowhere otherwise)
     LaunchedEffect(port) { WebProxy.apply(ctx, port) }
@@ -83,6 +92,13 @@ fun AppRoot() {
         scope.launch { drawer.close() }
     }
     val needConnect = stringResource(R.string.panels_need_connect)
+    val fullMsg = stringResource(R.string.bots_full, chat.sandboxCount, chat.limit)
+    fun newBot() {
+        if (chat.full) scope.launch { snackbar.showSnackbar(fullMsg) } else { saveError = null; creating = true }
+    }
+    fun failed(r: ManagerResult<*>) {
+        if (r is ManagerResult.Fail) saveError = managerErrorText(ctx, r)
+    }
 
     ModalNavigationDrawer(
         drawerState = drawer,
@@ -98,7 +114,7 @@ fun AppRoot() {
                     ConnectionCard(tunnel, onToggle = toggleTunnel, compact = true)
 
                     Text(
-                        stringResource(R.string.nav_bots),
+                        stringResource(R.string.bots_count, chat.sandboxCount, chat.limit),
                         style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 8.dp),
                     )
@@ -109,7 +125,7 @@ fun AppRoot() {
                             selected = screen == Screen.Chat && bot.id == chat.bot.id,
                             onClick = { app.chat.select(bot.id); go(Screen.Chat) },
                             badge = {
-                                IconButton(onClick = { editing = bot; scope.launch { drawer.close() } }) {
+                                IconButton(onClick = { saveError = null; editing = bot; scope.launch { drawer.close() } }) {
                                     Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.bots_edit))
                                 }
                             },
@@ -117,9 +133,15 @@ fun AppRoot() {
                     }
                     NavigationDrawerItem(
                         icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                        label = { Text(stringResource(R.string.bots_new)) },
+                        label = { Text(if (chat.full) stringResource(R.string.bots_new_full, chat.sandboxCount, chat.limit) else stringResource(R.string.bots_new)) },
                         selected = false,
-                        onClick = { creating = true; scope.launch { drawer.close() } },
+                        onClick = { newBot(); scope.launch { drawer.close() } },
+                    )
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+                        label = { Text(stringResource(R.string.nav_trash) + if (chat.trash.isNotEmpty()) " (${chat.trash.size})" else "") },
+                        selected = screen == Screen.Trash,
+                        onClick = { go(Screen.Trash) },
                     )
 
                     HorizontalDivider(Modifier.padding(vertical = 12.dp, horizontal = 16.dp))
@@ -148,8 +170,8 @@ fun AppRoot() {
                         onOpenDrawer = { scope.launch { drawer.open() } },
                         onConnect = { app.tunnel.connect() },
                         onOpenSettings = { screen = Screen.Settings },
-                        onNewBot = { creating = true },
-                        onEditBot = { editing = it },
+                        onNewBot = { newBot() },
+                        onEditBot = { saveError = null; editing = it },
                     )
                     Screen.HomeLab -> HomeLabScreen(
                         tunnel,
@@ -159,6 +181,10 @@ fun AppRoot() {
                         onPanelOpen = { panelOpen = it },
                     )
                     Screen.Settings -> LinkScreen(tunnel, onBack = { screen = Screen.Chat })
+                    Screen.Trash -> TrashScreen(
+                        connected = port != 0 || app.chat.managerAvailable(), onBack = { screen = Screen.Chat },
+                        onMessage = { scope.launch { snackbar.showSnackbar(it) } },
+                    )
                 }
             }
         }
@@ -166,18 +192,39 @@ fun AppRoot() {
 
     if (creating) {
         BotEditorDialog(
-            initial = null, canDelete = false,
-            onSave = { app.chat.saveBot(it); app.chat.select(it.id); creating = false; screen = Screen.Chat },
+            initial = null, sandbox = true, canDelete = false, saving = saving, error = saveError, trashDays = chat.trashDays,
+            onSave = { b ->
+                scope.launch {
+                    saving = true; saveError = null
+                    val r = app.chat.createBot(b.name, b.role, b.systemPrompt, b.color)
+                    saving = false
+                    if (r is ManagerResult.Ok) { creating = false; screen = Screen.Chat } else failed(r)
+                }
+            },
             onDelete = {},
-            onDismiss = { creating = false },
+            onDismiss = { if (!saving) creating = false },
         )
     }
     editing?.let { bot ->
         BotEditorDialog(
-            initial = bot, canDelete = chat.bots.size > 1,
-            onSave = { app.chat.saveBot(it); editing = null },
-            onDelete = { app.chat.deleteBot(bot.id); editing = null },
-            onDismiss = { editing = null },
+            initial = bot, sandbox = bot.isSandbox, canDelete = bot.isSandbox, saving = saving, error = saveError, trashDays = chat.trashDays,
+            onSave = { b ->
+                if (!bot.isSandbox) { app.chat.saveBot(b); editing = null } else scope.launch {
+                    saving = true; saveError = null
+                    val r = app.chat.updateBot(b)
+                    saving = false
+                    if (r is ManagerResult.Ok) editing = null else failed(r)
+                }
+            },
+            onDelete = {
+                scope.launch {
+                    saving = true; saveError = null
+                    val r = app.chat.trashBot(bot.id)
+                    saving = false
+                    if (r is ManagerResult.Ok) editing = null else failed(r)
+                }
+            },
+            onDismiss = { if (!saving) editing = null },
         )
     }
 }

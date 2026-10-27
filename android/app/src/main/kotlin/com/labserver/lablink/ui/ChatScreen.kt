@@ -98,6 +98,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.labserver.lablink.R
+import com.labserver.lablink.data.isSandbox
 import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.ChatMessage
 import com.labserver.lablink.labApp
@@ -177,6 +178,14 @@ fun ChatScreen(
                     BotAvatar(28.dp, color = botColor, mood = liveMood, talk = (live?.content?.length ?: 0) / 16, alive = true)
                     Spacer(Modifier.width(8.dp))
                     Text(ui.bot.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp))
+                    if (ui.bot.isSandbox) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            stringResource(R.string.bot_sandbox_label), style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.background(MaterialTheme.colorScheme.tertiaryContainer, RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 2.dp),
+                        )
+                    }
                     Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.bots_title), modifier = Modifier.size(20.dp))
                 }
             },
@@ -253,6 +262,7 @@ fun ChatScreen(
         BotPickerSheet(
             bots = ui.bots,
             currentId = ui.bot.id,
+            sandboxCount = ui.sandboxCount, limit = ui.limit, running = ui.running,
             onSelect = { app.chat.select(it.id); showPicker = false },
             onEdit = { onEditBot(it); showPicker = false },
             onNew = { onNewBot(); showPicker = false },
@@ -430,6 +440,7 @@ private fun ErrorStrip(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: ()
         BotEvent.Error.Kind.BadUrl -> stringResource(R.string.bot_error_url)
         BotEvent.Error.Kind.Auth -> stringResource(R.string.bot_error_auth)
         BotEvent.Error.Kind.Unreachable -> stringResource(R.string.bot_error_unreachable) + if (err.detail.isNotBlank()) " (${err.detail})" else ""
+        BotEvent.Error.Kind.Gone -> stringResource(R.string.bot_error_gone)
         BotEvent.Error.Kind.Other -> err.detail
     }
     Surface(

@@ -50,4 +50,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")   // the android.jar one is a stub on the JVM
+    testImplementation(libs.kotlinx.coroutines.android)
 }

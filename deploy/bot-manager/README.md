@@ -12,7 +12,7 @@ holds the manager key; the per-bot keys never leave the server.
 | | |
 |---|---|
 | `GET /health` | `{"ok":true}` |
-| `GET /bots` | `{"bots":[{id,name,role,color,systemPrompt,createdAt,sandbox:"running"\|"idle"}],"trash":[...],"limit":5}` |
+| `GET /bots` | `{"bots":[{id,name,role,color,systemPrompt,createdAt,sandbox:"running"\|"idle"}],"trash":[{...,trashedAt,expiresAt}],"limit":5,"trashLimit":20,"trashDays":7}` |
 | `POST /bots` | `{name, role?, systemPrompt?, color?}` -> 201; 409 `limit_reached` at the limit |
 | `PATCH /bots/{id}` | any of name, role, systemPrompt, color |
 | `DELETE /bots/{id}` | active bot -> moved to the trash (sandbox removed, nothing else lost) |
@@ -20,11 +20,11 @@ holds the manager key; the per-bot keys never leave the server.
 | `DELETE /bots/{id}?purge=1` | trashed bot -> removed for good (409 `not_in_trash` for an active one) |
 | `POST /bots/{id}/chat/completions` | OpenAI-style, streamed (SSE) or not; only `messages`, `stream`, `temperature`, `max_tokens` are forwarded, client `system` messages are dropped |
 
-Limits: `MAX_BOTS` (5) active bots, `MAX_TRASH` (20) trashed ones, 10 MB request body. Trashing needs no gateway reload (Hermes
+Limits: `MAX_BOTS` (5) active bots, `MAX_TRASH` (20) trashed ones that are removed for good after `TRASH_DAYS` (7; 0 = never), 10 MB request body. Trashing needs no gateway reload (Hermes
 picks profiles up and drops them live; do **not** use `systemctl reload hermes-gateway`, it restarts it).
 
 ## Janitor (every 5 minutes and at start)
-Drops entries whose data is gone, discards creations that never finished, removes sandboxes of bots that are not active, and
+Removes bots that stayed in the trash too long, drops entries whose data is gone, discards creations that never finished, removes sandboxes of bots that are not active, and
 **moves unknown `b...` profiles to the trash** (never deletes what it does not recognise).
 
 ## Install (in the container)

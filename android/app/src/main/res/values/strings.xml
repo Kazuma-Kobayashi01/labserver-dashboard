@@ -130,4 +130,35 @@
     <string name="link_allowed_ips">Allowed IPs</string>
     <string name="bot_copy">Copy</string>
     <string name="bot_regenerate">Regenerate</string>
+
+    <!-- sandbox bots, the trash and the bot-manager -->
+    <string name="bots_count">Sandbox bots %1$d/%2$d</string>
+    <string name="bots_full">%1$d/%2$d bots: delete one first</string>
+    <string name="bots_new_full">New bot (%1$d/%2$d, full)</string>
+    <string name="nav_trash">Trash</string>
+    <string name="trash_title">Trash</string>
+    <string name="trash_empty">Nothing here. A deleted bot stays for %1$d days; you can bring it back.</string>
+    <string name="trash_restore">Restore</string>
+    <string name="trash_purge">Delete for good</string>
+    <string name="trash_purge_confirm">Delete “%1$s” for good? Its files and the conversation on this phone are removed and cannot be brought back.</string>
+    <string name="trash_expires_days">Removed for good in %1$d days</string>
+    <string name="trash_expires_today">Removed for good today</string>
+    <string name="trash_offline">Showing the last list; connect to change it</string>
+    <string name="bot_sandbox_label">Sandbox</string>
+    <string name="bot_sandbox_hint">This bot runs commands in its own sandbox on the home server.</string>
+    <string name="bot_prompt_hint_sandbox">Kept on the server and used in every conversation with this bot.</string>
+    <string name="bot_saving">Saving…</string>
+    <string name="bot_delete_sandbox_confirm">Move this bot to the trash? Its sandbox stops; its files and the conversation are kept for %1$d days and you can restore it.</string>
+    <string name="bot_error_gone">This bot no longer exists on the server</string>
+    <string name="mgr_error_not_connected">Connect first</string>
+    <string name="mgr_error_no_key">Fill in the bot manager key in Settings</string>
+    <string name="mgr_error_url">The bot manager address must start with http:// or https://</string>
+    <string name="mgr_error_auth">The bot manager key was rejected</string>
+    <string name="mgr_error_limit">The limit of sandbox bots is reached: delete one first</string>
+    <string name="mgr_error_trash_full">The trash is full: delete something from it for good first</string>
+    <string name="mgr_error_not_found">That bot is no longer on the server</string>
+    <string name="mgr_error_unreachable">The bot manager is not reachable</string>
+    <string name="link_manager_key">Bot manager key</string>
+    <string name="link_manager_url">Bot manager address (optional)</string>
+    <string name="link_manager_hint">Needed to create and use sandbox bots.</string>
 </resources>

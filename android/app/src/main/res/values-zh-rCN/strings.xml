@@ -130,4 +130,35 @@
     <string name="link_allowed_ips">允许的地址段</string>
     <string name="bot_copy">复制</string>
     <string name="bot_regenerate">重新生成</string>
+
+    <!-- 沙盒 bot、回收站和 bot 管理服务 -->
+    <string name="bots_count">沙盒 bot %1$d/%2$d</string>
+    <string name="bots_full">已有 %1$d/%2$d 个 bot，请先删除一个</string>
+    <string name="bots_new_full">新建 bot（%1$d/%2$d，已满）</string>
+    <string name="nav_trash">回收站</string>
+    <string name="trash_title">回收站</string>
+    <string name="trash_empty">这里没有东西。删除的 bot 会保留 %1$d 天，可以恢复。</string>
+    <string name="trash_restore">恢复</string>
+    <string name="trash_purge">彻底删除</string>
+    <string name="trash_purge_confirm">彻底删除“%1$s”？它的文件和这台手机上的聊天记录都会被删除，无法恢复。</string>
+    <string name="trash_expires_days">%1$d 天后彻底删除</string>
+    <string name="trash_expires_today">今天彻底删除</string>
+    <string name="trash_offline">显示的是上次的列表，连接后才能操作</string>
+    <string name="bot_sandbox_label">沙盒</string>
+    <string name="bot_sandbox_hint">这个 bot 会在家里服务器上它自己的沙盒里执行命令。</string>
+    <string name="bot_prompt_hint_sandbox">保存在服务器上，和这个 bot 的每次对话都会用到。</string>
+    <string name="bot_saving">保存中…</string>
+    <string name="bot_delete_sandbox_confirm">把这个 bot 移到回收站？它的沙盒会停止，文件和聊天记录保留 %1$d 天，期间可以恢复。</string>
+    <string name="bot_error_gone">服务器上已经没有这个 bot 了</string>
+    <string name="mgr_error_not_connected">请先连接</string>
+    <string name="mgr_error_no_key">请先在设置里填写 bot 管理密钥</string>
+    <string name="mgr_error_url">bot 管理地址必须以 http:// 或 https:// 开头</string>
+    <string name="mgr_error_auth">bot 管理密钥被拒绝</string>
+    <string name="mgr_error_limit">沙盒 bot 已达上限，请先删除一个</string>
+    <string name="mgr_error_trash_full">回收站已满，请先彻底删除一些</string>
+    <string name="mgr_error_not_found">服务器上已经没有这个 bot 了</string>
+    <string name="mgr_error_unreachable">连不上 bot 管理服务</string>
+    <string name="link_manager_key">bot 管理密钥</string>
+    <string name="link_manager_url">bot 管理地址（可选）</string>
+    <string name="link_manager_hint">创建和使用沙盒 bot 需要它。</string>
 </resources>

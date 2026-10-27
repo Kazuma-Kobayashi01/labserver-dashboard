@@ -81,6 +81,9 @@ private val presets = listOf(
 fun BotPickerSheet(
     bots: List<Bot>,
     currentId: String,
+    sandboxCount: Int,
+    limit: Int,
+    running: Set<String>,
     onSelect: (Bot) -> Unit,
     onEdit: (Bot) -> Unit,
     onNew: () -> Unit,
@@ -88,7 +91,7 @@ fun BotPickerSheet(
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(stringResource(R.string.bots_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
+            Text(stringResource(R.string.bots_title) + "  ·  " + stringResource(R.string.bots_count, sandboxCount, limit), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
             bots.forEach { bot ->
                 val selected = bot.id == currentId
                 Surface(
@@ -99,7 +102,7 @@ fun BotPickerSheet(
                     Row(Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         BotAvatar(46.dp, color = Color(bot.color))
                         Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                            Text(bot.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(bot.name + if (bot.id in running) "  ●" else "", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (bot.role.isNotBlank()) {
                                 Text(bot.role, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
@@ -111,7 +114,7 @@ fun BotPickerSheet(
             FilledTonalButton(onClick = onNew, modifier = Modifier.fillMaxWidth().height(52.dp).padding(top = 4.dp)) {
                 Icon(Icons.Rounded.Add, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.bots_new))
+                Text(if (sandboxCount >= limit) stringResource(R.string.bots_new_full, sandboxCount, limit) else stringResource(R.string.bots_new))
             }
         }
     }
@@ -120,7 +123,18 @@ fun BotPickerSheet(
 /** Create a bot (initial == null) or edit one: name, one-line role, system prompt and colour. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BotEditorDialog(initial: Bot?, canDelete: Boolean, onSave: (Bot) -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit) {
+fun BotEditorDialog(
+    initial: Bot?,
+    /** A sandbox bot: kept by the server, with the server's limits on the fields. */
+    sandbox: Boolean,
+    canDelete: Boolean,
+    saving: Boolean,
+    error: String?,
+    trashDays: Int,
+    onSave: (Bot) -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var role by remember { mutableStateOf(initial?.role ?: "") }
     var prompt by remember { mutableStateOf(initial?.systemPrompt ?: "") }
@@ -137,10 +151,10 @@ fun BotEditorDialog(initial: Bot?, canDelete: Boolean, onSave: (Bot) -> Unit, on
                     title = { Text(stringResource(if (initial == null) R.string.bot_editor_new else R.string.bot_editor_edit)) },
                     navigationIcon = { IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_cancel)) } },
                     actions = {
-                        TextButton(onClick = {
+                        TextButton(enabled = !saving, onClick = {
                             if (name.isBlank()) showError = true
                             else onSave((initial ?: Bot(name = name)).copy(name = name.trim(), role = role.trim(), systemPrompt = prompt.trim(), color = color))
-                        }) { Text(stringResource(R.string.common_save)) }
+                        }) { Text(stringResource(if (saving) R.string.bot_saving else R.string.common_save)) }
                     },
                     windowInsets = WindowInsets(0),
                 )
@@ -155,6 +169,14 @@ fun BotEditorDialog(initial: Bot?, canDelete: Boolean, onSave: (Bot) -> Unit, on
                         if (role.isNotBlank()) Text(role, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
 
+                    if (sandbox) {
+                        Text(stringResource(R.string.bot_sandbox_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    error?.let {
+                        Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
+                        }
+                    }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         BotColors.palette().forEach { c ->
                             val sel = c == color
@@ -195,20 +217,20 @@ fun BotEditorDialog(initial: Bot?, canDelete: Boolean, onSave: (Bot) -> Unit, on
                     }
 
                     OutlinedTextField(
-                        name, { name = it; showError = false },
+                        name, { name = if (sandbox) it.take(40) else it; showError = false },
                         label = { Text(stringResource(R.string.bot_name)) },
                         isError = showError, supportingText = if (showError) ({ Text(stringResource(R.string.bot_name_required)) }) else null,
                         singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
-                        role, { role = it },
+                        role, { role = if (sandbox) it.take(200) else it },
                         label = { Text(stringResource(R.string.bot_role)) },
                         singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
-                        prompt, { prompt = it },
+                        prompt, { prompt = if (sandbox) it.take(8000) else it },
                         label = { Text(stringResource(R.string.bot_prompt)) },
-                        supportingText = { Text(stringResource(R.string.bot_prompt_hint)) },
+                        supportingText = { Text(stringResource(if (sandbox) R.string.bot_prompt_hint_sandbox else R.string.bot_prompt_hint)) },
                         minLines = 6, maxLines = 14, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(),
                     )
 
@@ -217,6 +239,7 @@ fun BotEditorDialog(initial: Bot?, canDelete: Boolean, onSave: (Bot) -> Unit, on
                             onClick = { confirmDelete = true },
                             colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                             modifier = Modifier.fillMaxWidth().height(52.dp),
+                            enabled = !saving,
                         ) { Text(stringResource(R.string.bot_delete)) }
                     }
                     Spacer(Modifier.height(16.dp))
@@ -229,7 +252,7 @@ fun BotEditorDialog(initial: Bot?, canDelete: Boolean, onSave: (Bot) -> Unit, on
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text(stringResource(R.string.bot_delete)) },
-            text = { Text(stringResource(R.string.bot_delete_confirm)) },
+            text = { Text(if (sandbox) stringResource(R.string.bot_delete_sandbox_confirm, trashDays) else stringResource(R.string.bot_delete_confirm)) },
             confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text(stringResource(R.string.common_ok)) } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
