@@ -192,11 +192,11 @@ fun AppRoot() {
 
     if (creating) {
         BotEditorDialog(
-            initial = null, sandbox = true, canDelete = false, saving = saving, error = saveError, trashDays = chat.trashDays,
+            initial = null, sandbox = true, canDelete = false, saving = saving, error = saveError, trashDays = chat.trashDays, catalog = chat.catalog,
             onSave = { b ->
                 scope.launch {
                     saving = true; saveError = null
-                    val r = app.chat.createBot(b.name, b.role, b.systemPrompt, b.color)
+                    val r = app.chat.createBot(b)
                     saving = false
                     if (r is ManagerResult.Ok) { creating = false; screen = Screen.Chat } else failed(r)
                 }
@@ -207,7 +207,7 @@ fun AppRoot() {
     }
     editing?.let { bot ->
         BotEditorDialog(
-            initial = bot, sandbox = bot.isSandbox, canDelete = bot.isSandbox, saving = saving, error = saveError, trashDays = chat.trashDays,
+            initial = bot, sandbox = bot.isSandbox, canDelete = bot.isSandbox, saving = saving, error = saveError, trashDays = chat.trashDays, catalog = chat.catalog,
             onSave = { b ->
                 if (!bot.isSandbox) { app.chat.saveBot(b); editing = null } else scope.launch {
                     saving = true; saveError = null

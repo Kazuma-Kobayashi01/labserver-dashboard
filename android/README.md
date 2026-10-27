@@ -75,3 +75,11 @@ and chat through the manager. Fill in the bot manager key in Settings (or paste 
 the address defaults to `http://bot.<domain>/m/v1`. Their prompts live on the server, the conversations on the phone.
 Debug builds can point the manager address at `http://10.0.2.2:<port>` (an emulator reaching the Mac) to test without the tunnel.
 Unit tests: `./gradlew testDebugUnitTest`.
+
+## Model, thinking level and Markdown
+
+A tag under the message box shows the model and thinking level of this chat (default: the bot's own, else the server's); it opens a
+sheet with the models by provider and the levels the chosen model accepts. The bot editor sets the bot's default. The catalog comes
+from the bot manager (`/m/v1/models`) and is cached. Messages (yours too) are shown as Markdown: all heading levels, bold, italic,
+strikethrough, inline code, links, nested and task lists, quotes, tables, rules, and fenced code in a box with a copy button and
+syntax colours (`diff` shows added and removed lines). The parser and the highlighter are plain Kotlin with unit tests.

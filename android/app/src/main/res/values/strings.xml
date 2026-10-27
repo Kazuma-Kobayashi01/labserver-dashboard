@@ -161,4 +161,21 @@
     <string name="link_manager_key">Bot manager key</string>
     <string name="link_manager_url">Bot manager address (optional)</string>
     <string name="link_manager_hint">Needed to create and use sandbox bots.</string>
+
+    <!-- model and thinking level -->
+    <string name="model_title">Model</string>
+    <string name="model_default">Default</string>
+    <string name="model_default_sub">What this bot is set to use</string>
+    <string name="model_default_server">The server\'s own default</string>
+    <string name="model_effort">Thinking</string>
+    <string name="model_effort_auto">Auto</string>
+    <string name="effort_none">Off</string>
+    <string name="effort_low">Low</string>
+    <string name="effort_medium">Medium</string>
+    <string name="effort_high">High</string>
+    <string name="effort_xhigh">Extra high</string>
+    <string name="effort_max">Max</string>
+    <string name="model_empty">No models yet. Connect, and fill in the bot manager key in Settings.</string>
+    <string name="model_done">Done</string>
+    <string name="bot_default_model">Default model</string>
 </resources>

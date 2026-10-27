@@ -120,6 +120,7 @@ fun ChatScreen(
     var input by rememberSaveable { mutableStateOf("") }
     var confirmClear by remember { mutableStateOf(false) }
     var showPicker by remember { mutableStateOf(false) }
+    var showModel by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val botColor = Color(ui.bot.color)
@@ -255,6 +256,16 @@ fun ChatScreen(
             streaming = ui.streaming,
             onSend = send,
             onStop = app.chat::stop,
+            modelLabel = pickLabel(ui.catalog, ui.effectivePick),
+            onModel = { showModel = true },
+        )
+    }
+
+    if (showModel) {
+        ModelPickerSheet(
+            catalog = ui.catalog, current = ui.pick,
+            defaultSubtitle = if (ui.bot.pick.isDefault) stringResource(R.string.model_default_server) else pickLabel(ui.catalog, ui.bot.pick),
+            onPick = app.chat::setPick, onDismiss = { showModel = false },
         )
     }
 
@@ -367,11 +378,8 @@ private fun UserBubble(m: ChatMessage, botColor: Color, modifier: Modifier = Mod
             modifier = Modifier.widthIn(max = 300.dp).padding(start = 48.dp),
         ) {
             SelectionContainer {
-                Text(
-                    m.content,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
-                )
+                // the user's own text takes Markdown too (a pasted code block shows as one)
+                MarkdownText(m.content, MaterialTheme.colorScheme.onSurface, Modifier.padding(horizontal = 16.dp, vertical = 11.dp))
             }
         }
     }
@@ -461,7 +469,7 @@ private fun ErrorStrip(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: ()
 
 /** One big rounded container, as in Grok and Gemini; the send button morphs into a stop square while streaming. */
 @Composable
-private fun Composer(hint: String, value: String, onValueChange: (String) -> Unit, streaming: Boolean, onSend: () -> Unit, onStop: () -> Unit) {
+private fun Composer(hint: String, value: String, onValueChange: (String) -> Unit, streaming: Boolean, onSend: () -> Unit, onStop: () -> Unit, modelLabel: String, onModel: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLowest,
         shape = RoundedCornerShape(30.dp),
@@ -470,7 +478,8 @@ private fun Composer(hint: String, value: String, onValueChange: (String) -> Uni
         modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f), RoundedCornerShape(30.dp)),
     ) {
-        Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
+      Column {
+        Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 4.dp), verticalAlignment = Alignment.Bottom) {
             TextField(
                 value = value,
                 onValueChange = onValueChange,
@@ -509,6 +518,16 @@ private fun Composer(hint: String, value: String, onValueChange: (String) -> Uni
                 }
             }
         }
+        // the model and thinking level of this chat, as a small tag under the text
+        Row(
+            Modifier.padding(start = 14.dp, bottom = 8.dp).clip(RoundedCornerShape(50)).clickable(onClick = onModel)
+                .background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(modelLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 240.dp))
+            Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.model_title), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+      }
     }
     Spacer(Modifier.height(0.dp))
 }

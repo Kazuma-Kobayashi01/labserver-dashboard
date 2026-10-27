@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -50,173 +51,173 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
-private sealed interface Block {
-    data class Para(val text: String) : Block
-    data class Heading(val level: Int, val text: String) : Block
-    data class Item(val marker: String, val text: String) : Block
-    data class Code(val lang: String, val text: String) : Block
-    data class Quote(val text: String) : Block
-    data class Table(val header: List<String>, val rows: List<List<String>>) : Block
-    data object Rule : Block
-}
-
-private val bullet = Regex("""^\s*[-*+]\s+(.*)""")
-private val numbered = Regex("""^\s*(\d+[.)])\s+(.*)""")
-private val rule = Regex("""^\s*([-*_])(\s*\1){2,}\s*$""")
-private val tableSep = Regex("""^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$""")
 private val bareUrl = Regex("""https?://[^\s)<>\]]+""")
+private const val ESCAPABLE = "\\`*_{}[]()#+-.!|~>"
 
-private fun cells(line: String): List<String> = line.trim().trim('|').split('|').map { it.trim() }
+private fun isWordChar(c: Char?) = c != null && (c.isLetterOrDigit())
 
-private fun parseBlocks(src: String): List<Block> {
-    val out = mutableListOf<Block>()
-    val para = StringBuilder()
-    fun flush() {
-        if (para.isNotEmpty()) out += Block.Para(para.toString().trimEnd())
-        para.setLength(0)
-    }
-    val lines = src.lines()
-    var code: StringBuilder? = null
-    var lang = ""
-    var i = 0
-    while (i < lines.size) {
-        val line = lines[i]
-        val t = line.trimStart()
-        if (code != null) {
-            if (t.startsWith("```")) { out += Block.Code(lang, code.toString().trimEnd('\n')); code = null } else code.appendLine(line)
-            i++; continue
-        }
-        when {
-            t.startsWith("```") -> { flush(); code = StringBuilder(); lang = t.removePrefix("```").trim() }
-            t.startsWith("#") -> {
-                flush()
-                out += Block.Heading(t.takeWhile { it == '#' }.length.coerceAtMost(3), t.trimStart('#').trim())
-            }
-            rule.matches(line) -> { flush(); out += Block.Rule }
-            t.startsWith(">") -> {
-                flush()
-                val q = StringBuilder()
-                while (i < lines.size && lines[i].trimStart().startsWith(">")) { q.appendLine(lines[i].trimStart().removePrefix(">").trim()); i++ }
-                out += Block.Quote(q.toString().trimEnd()); continue
-            }
-            t.startsWith("|") && i + 1 < lines.size && tableSep.matches(lines[i + 1]) -> {
-                flush()
-                val header = cells(line)
-                val rows = mutableListOf<List<String>>()
-                i += 2
-                while (i < lines.size && lines[i].trimStart().startsWith("|")) { rows += cells(lines[i]); i++ }
-                out += Block.Table(header, rows); continue
-            }
-            bullet.matches(line) -> { flush(); out += Block.Item("•", bullet.matchEntire(line)!!.groupValues[1]) }
-            numbered.matches(line) -> {
-                flush()
-                val m = numbered.matchEntire(line)!!
-                out += Block.Item(m.groupValues[1], m.groupValues[2])
-            }
-            line.isBlank() -> flush()
-            else -> { if (para.isNotEmpty()) para.append('\n'); para.append(line) }
-        }
-        i++
-    }
-    code?.let { out += Block.Code(lang, it.toString().trimEnd('\n')) } // a reply still streaming inside a code block
-    flush()
-    return out
-}
-
-/** **bold**, *italic*, `code`, [links](url) and bare URLs inside one run of text. */
-private fun inline(text: String, codeBg: Color, link: Color): AnnotatedString = buildAnnotatedString {
+/** Inline Markdown inside one run of text: **bold**, *italic*, ***both***, ~~strike~~, `code`, [links](url), <br>, escapes. */
+private fun AnnotatedString.Builder.inlineInto(text: String, codeBg: Color, link: Color) {
     val linkStyle = TextLinkStyles(SpanStyle(color = link, textDecoration = TextDecoration.Underline))
     var i = 0
+    fun styled(style: SpanStyle, inner: String) { withStyle(style) { inlineInto(inner, codeBg, link) } }
     while (i < text.length) {
         val c = text[i]
         when {
-            text.startsWith("**", i) -> {
-                val end = text.indexOf("**", i + 2)
-                if (end > 0) {
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(text.substring(i + 2, end)) }
-                    i = end + 2
-                } else { append(c); i++ }
-            }
+            c == '\\' && i + 1 < text.length && text[i + 1] in ESCAPABLE -> { append(text[i + 1]); i += 2 }
+            text.startsWith("<br>", i, true) -> { append('\n'); i += 4 }
+            text.startsWith("<br/>", i, true) -> { append('\n'); i += 5 }
             c == '`' -> {
-                val end = text.indexOf('`', i + 1)
+                var n = 0
+                while (i + n < text.length && text[i + n] == '`') n++
+                val fence = "`".repeat(n)
+                val end = text.indexOf(fence, i + n)
                 if (end > 0) {
-                    withStyle(SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp, background = codeBg)) { append(" " + text.substring(i + 1, end) + " ") }
-                    i = end + 1
-                } else { append(c); i++ }
+                    withStyle(SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp, background = codeBg)) { append(" " + text.substring(i + n, end).trim() + " ") }
+                    i = end + n
+                } else { append(fence); i += n }
             }
-            c == '[' -> {
-                val close = text.indexOf("](", i)
+            text.startsWith("***", i) && text.indexOf("***", i + 3) > i + 3 -> {
+                val end = text.indexOf("***", i + 3)
+                styled(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic), text.substring(i + 3, end)); i = end + 3
+            }
+            (text.startsWith("**", i) || (text.startsWith("__", i) && !isWordChar(text.getOrNull(i - 1)))) && run {
+                val m = text.substring(i, i + 2); text.indexOf(m, i + 2) > i + 2
+            } -> {
+                val m = text.substring(i, i + 2); val end = text.indexOf(m, i + 2)
+                styled(SpanStyle(fontWeight = FontWeight.Bold), text.substring(i + 2, end)); i = end + 2
+            }
+            text.startsWith("~~", i) && text.indexOf("~~", i + 2) > i + 2 -> {
+                val end = text.indexOf("~~", i + 2)
+                styled(SpanStyle(textDecoration = TextDecoration.LineThrough), text.substring(i + 2, end)); i = end + 2
+            }
+            c == '*' && i + 1 < text.length && text[i + 1] != ' ' && text[i + 1] != '*' && run {
+                var e = text.indexOf('*', i + 1); while (e > 0 && text.getOrNull(e + 1) == '*') e = text.indexOf('*', e + 2); e > i + 1
+            } -> {
+                var end = text.indexOf('*', i + 1); while (end > 0 && text.getOrNull(end + 1) == '*') end = text.indexOf('*', end + 2)
+                styled(SpanStyle(fontStyle = FontStyle.Italic), text.substring(i + 1, end)); i = end + 1
+            }
+            c == '_' && !isWordChar(text.getOrNull(i - 1)) && i + 1 < text.length && text[i + 1] != ' ' && text[i + 1] != '_' && run {
+                val e = text.indexOf('_', i + 1); e > i + 1 && !isWordChar(text.getOrNull(e + 1))
+            } -> {
+                val end = text.indexOf('_', i + 1)
+                styled(SpanStyle(fontStyle = FontStyle.Italic), text.substring(i + 1, end)); i = end + 1
+            }
+            (c == '[' || (c == '!' && text.getOrNull(i + 1) == '[')) -> {
+                val start = if (c == '!') i + 1 else i
+                val close = text.indexOf("](", start)
                 val end = if (close > 0) text.indexOf(')', close) else -1
                 if (close > 0 && end > 0) {
-                    withLink(LinkAnnotation.Url(text.substring(close + 2, end), linkStyle)) { append(text.substring(i + 1, close)) }
+                    val url = text.substring(close + 2, end).trim().substringBefore(' ')
+                    val label = text.substring(start + 1, close)
+                    withLink(LinkAnnotation.Url(url, linkStyle)) { inlineInto(if (c == '!') "🖼 " + label.ifBlank { url } else label, codeBg, link) }
                     i = end + 1
                 } else { append(c); i++ }
             }
-            c == 'h' && bareUrl.matchAt(text, i) != null -> {
+            c == '<' && text.startsWith("<http", i) && text.indexOf('>', i) > 0 -> {
+                val end = text.indexOf('>', i); val url = text.substring(i + 1, end)
+                withLink(LinkAnnotation.Url(url, linkStyle)) { append(url) }; i = end + 1
+            }
+            c == 'h' && !isWordChar(text.getOrNull(i - 1)) && bareUrl.matchAt(text, i) != null -> {
                 val url = bareUrl.matchAt(text, i)!!.value.trimEnd('.', ',', ';', ':', '!', '?')
                 withLink(LinkAnnotation.Url(url, linkStyle)) { append(url) }
                 i += url.length
-            }
-            c == '*' && i + 1 < text.length && text[i + 1] != ' ' -> {
-                val end = text.indexOf('*', i + 1)
-                if (end > 0) {
-                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(text.substring(i + 1, end)) }
-                    i = end + 1
-                } else { append(c); i++ }
             }
             else -> { append(c); i++ }
         }
     }
 }
 
-/** Markdown subset: paragraphs, headings, lists, quotes, rules, tables, fenced code (with a copy button), inline styles and links. */
+private fun inline(text: String, codeBg: Color, link: Color): AnnotatedString = buildAnnotatedString { inlineInto(text, codeBg, link) }
+
+/**
+ * Markdown for chat: paragraphs, headings (all six levels), nested and task lists, quotes (which can hold anything), rules,
+ * tables, fenced code with syntax colours and a copy button, and the inline styles above. Works while a reply is streaming.
+ */
 @Composable
 fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
     val codeBg = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f)
     val link = MaterialTheme.colorScheme.primary
-    val blocks = parseBlocks(text)
+    val blocks = remember(text) { parseBlocks(text) }
+    BlockList(blocks, color, codeBg, link, modifier)
+}
+
+@Composable
+private fun BlockList(blocks: List<Block>, color: Color, codeBg: Color, link: Color, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        for (b in blocks) when (b) {
-            is Block.Para -> Text(inline(b.text, codeBg, link), color = color, style = MaterialTheme.typography.bodyLarge)
-            is Block.Heading -> Text(
-                inline(b.text, codeBg, link), color = color, fontWeight = FontWeight.ExtraBold,
-                style = when (b.level) {
-                    1 -> MaterialTheme.typography.titleLarge
-                    2 -> MaterialTheme.typography.titleMedium
-                    else -> MaterialTheme.typography.titleSmall
-                },
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            is Block.Item -> Row(Modifier.padding(start = 2.dp)) {
-                Text(
-                    b.marker, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.bodyLarge, modifier = Modifier.width(if (b.marker == "•") 18.dp else 28.dp),
-                )
-                Text(inline(b.text, codeBg, link), color = color, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        var i = 0
+        while (i < blocks.size) {
+            val b = blocks[i]
+            if (b is Block.Item) {
+                // the items of one list sit closer together than separate paragraphs
+                var j = i
+                while (j < blocks.size && blocks[j] is Block.Item) j++
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    for (k in i until j) ListItem(blocks[k] as Block.Item, color, codeBg, link)
+                }
+                i = j; continue
             }
-            is Block.Quote -> Row(Modifier.height(IntrinsicSize.Min)) {
-                Box(Modifier.width(3.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(2.dp)))
-                Text(
-                    inline(b.text, codeBg, link), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge,
-                    fontStyle = FontStyle.Italic, modifier = Modifier.padding(start = 12.dp),
+            when (b) {
+                is Block.Para -> Text(inline(b.text, codeBg, link), color = color, style = MaterialTheme.typography.bodyLarge)
+                is Block.Heading -> Text(
+                    inline(b.text, codeBg, link), color = color, fontWeight = FontWeight.ExtraBold,
+                    style = when (b.level) {
+                        1 -> MaterialTheme.typography.titleLarge
+                        2 -> MaterialTheme.typography.titleMedium
+                        3 -> MaterialTheme.typography.titleSmall
+                        else -> MaterialTheme.typography.bodyLarge
+                    },
+                    modifier = Modifier.padding(top = 4.dp),
                 )
+                is Block.Quote -> Row(Modifier.height(IntrinsicSize.Min)) {
+                    Box(Modifier.width(3.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(2.dp)))
+                    BlockList(b.blocks, MaterialTheme.colorScheme.onSurfaceVariant, codeBg, link, Modifier.padding(start = 12.dp))
+                }
+                Block.Rule -> HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                is Block.Table -> TableBlock(b, color, codeBg, link)
+                is Block.Code -> CodeBlock(b.lang, b.text, color)
+                is Block.Item -> Unit
             }
-            Block.Rule -> HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            is Block.Table -> TableBlock(b, color, codeBg, link)
-            is Block.Code -> CodeBlock(b.lang, b.text, color)
+            i++
         }
+    }
+}
+
+@Composable
+private fun ListItem(b: Block.Item, color: Color, codeBg: Color, link: Color) {
+    val marker = when {
+        b.task == true -> "☑"
+        b.task == false -> "☐"
+        b.marker == "•" -> when (b.depth % 3) { 0 -> "•"; 1 -> "◦"; else -> "▪" }
+        else -> b.marker
+    }
+    Row(Modifier.padding(start = 2.dp + 18.dp * b.depth)) {
+        Text(
+            marker, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.bodyLarge, modifier = Modifier.width(if (b.marker == "•" || b.task != null) 22.dp else 30.dp),
+        )
+        Text(
+            inline(b.text, codeBg, link), color = if (b.task == true) MaterialTheme.colorScheme.onSurfaceVariant else color,
+            style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f),
+        )
     }
 }
 
 @Composable
 private fun TableBlock(t: Block.Table, color: Color, codeBg: Color, link: Color) {
     val cols = t.header.size
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
     val widths = (0 until cols).map { c ->
         // Chinese characters are about twice as wide as Latin ones
         val longest = (listOf(t.header) + t.rows).maxOfOrNull { row ->
             (row.getOrNull(c) ?: "").sumOf { ch -> if (ch.code > 0x2E80) 2 else 1 as Int }
         } ?: 4
-        (longest * 7.5f + 28f).coerceIn(64f, 190f).dp
+        (longest * 7.5f + 28f).coerceIn(64f, 190f)
+    }.let { natural ->
+        // a narrow table is stretched to the full width, a wide one scrolls sideways
+        val total = natural.sum()
+        val factor = if (total in 1f..maxWidth.value) maxWidth.value / total else 1f
+        natural.map { (it * factor).dp }
     }
     Column(
         Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp)).horizontalScroll(rememberScrollState()),
@@ -233,6 +234,7 @@ private fun TableBlock(t: Block.Table, color: Color, codeBg: Color, link: Color)
             }
             if (r < t.rows.size) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         }
+    }
     }
 }
 
@@ -259,8 +261,27 @@ private fun CodeBlock(lang: String, code: String, color: Color) {
                 )
             }
         }
+        val colors = MaterialTheme.colorScheme
+        val shown = remember(code, lang, colors) {
+            buildAnnotatedString {
+                append(code)
+                for (sp in tokenize(code, lang)) {
+                    val style = when (sp.kind) {
+                        Tok.Keyword -> SpanStyle(color = colors.primary, fontWeight = FontWeight.SemiBold)
+                        Tok.Type -> SpanStyle(color = colors.secondary)
+                        Tok.Str -> SpanStyle(color = colors.tertiary)
+                        Tok.Number -> SpanStyle(color = colors.secondary)
+                        Tok.Comment -> SpanStyle(color = colors.onSurfaceVariant.copy(alpha = 0.75f), fontStyle = FontStyle.Italic)
+                        Tok.Added -> SpanStyle(color = Color(0xFF2FBF8F))
+                        Tok.Removed -> SpanStyle(color = colors.error)
+                        Tok.Plain -> null
+                    }
+                    if (style != null) addStyle(style, sp.start, sp.end)
+                }
+            }
+        }
         Text(
-            code, color = color, fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 19.sp,
+            shown, color = color, fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 19.sp,
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
         )
     }

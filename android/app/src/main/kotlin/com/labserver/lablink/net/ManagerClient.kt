@@ -1,6 +1,9 @@
 package com.labserver.lablink.net
 
 import com.labserver.lablink.data.Bot
+import com.labserver.lablink.data.Catalog
+import com.labserver.lablink.data.ModelInfo
+import com.labserver.lablink.data.ProviderInfo
 import com.labserver.lablink.data.Listing
 import com.labserver.lablink.data.TrashedBot
 import kotlinx.coroutines.Dispatchers
@@ -38,11 +41,11 @@ class ManagerClient(private val ep: ManagerEndpoint) {
 
     suspend fun list(): ManagerResult<Listing> = call("GET", "/bots", null) { parseListing(it) }
 
-    suspend fun create(name: String, role: String, prompt: String, color: Long): ManagerResult<Bot> =
-        call("POST", "/bots", spec(name, role, prompt, color)) { parseBot(JSONObject(it)) }
+    suspend fun models(): ManagerResult<Catalog> = call("GET", "/models", null) { parseCatalog(it) }
 
-    suspend fun update(id: String, name: String, role: String, prompt: String, color: Long): ManagerResult<Bot> =
-        call("PATCH", "/bots/$id", spec(name, role, prompt, color)) { parseBot(JSONObject(it)) }
+    suspend fun create(bot: Bot): ManagerResult<Bot> = call("POST", "/bots", spec(bot)) { parseBot(JSONObject(it)) }
+
+    suspend fun update(bot: Bot): ManagerResult<Bot> = call("PATCH", "/bots/${bot.id}", spec(bot)) { parseBot(JSONObject(it)) }
 
     suspend fun trash(id: String): ManagerResult<Unit> = call("DELETE", "/bots/$id", null) { }
 
@@ -50,8 +53,8 @@ class ManagerClient(private val ep: ManagerEndpoint) {
 
     suspend fun purge(id: String): ManagerResult<Unit> = call("DELETE", "/bots/$id?purge=1", null) { }
 
-    private fun spec(name: String, role: String, prompt: String, color: Long) =
-        JSONObject().put("name", name).put("role", role).put("systemPrompt", prompt).put("color", color)
+    private fun spec(b: Bot) = JSONObject().put("name", b.name).put("role", b.role).put("systemPrompt", b.systemPrompt)
+        .put("color", b.color).put("modelProvider", b.modelProvider).put("modelId", b.modelId).put("reasoning", b.reasoning)
 
     private suspend fun <T> call(method: String, path: String, body: JSONObject?, parse: (String) -> T): ManagerResult<T> =
         withContext(Dispatchers.IO) {
@@ -116,7 +119,24 @@ class ManagerClient(private val ep: ManagerEndpoint) {
             role = o.optString("role"),
             systemPrompt = o.optString("systemPrompt"),
             color = o.optLong("color", 0xFF4B3FD8),
+            modelProvider = o.optString("modelProvider"),
+            modelId = o.optString("modelId"),
+            reasoning = o.optString("reasoning"),
         )
+
+        fun parseCatalog(text: String): Catalog {
+            val providers = JSONObject(text).optJSONArray("providers") ?: return Catalog()
+            return Catalog((0 until providers.length()).map { i ->
+                val p = providers.getJSONObject(i)
+                val models = p.getJSONArray("models")
+                ProviderInfo(p.getString("id"), p.optString("name", p.getString("id")), (0 until models.length()).map { j ->
+                    val mo = models.getJSONObject(j)
+                    val efforts = mo.optJSONArray("efforts")
+                    ModelInfo(mo.getString("id"), mo.optString("name", mo.getString("id")),
+                        (0 until (efforts?.length() ?: 0)).map { efforts!!.getString(it) })
+                })
+            })
+        }
 
         fun parseListing(text: String): Listing {
             val o = JSONObject(text)

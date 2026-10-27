@@ -61,7 +61,7 @@ class ManagerClientTest {
     fun createSendsTheSpecAndReturnsTheBot() = runBlocking {
         status = 201
         reply = """{"id":"b0123456789","name":"Ann","role":"r","color":1,"systemPrompt":"p"}"""
-        val r = client.create("Ann", "r", "p", 1) as ManagerResult.Ok
+        val r = client.create(com.labserver.lablink.data.Bot(id = "x", name = "Ann", role = "r", systemPrompt = "p", color = 1)) as ManagerResult.Ok
         assertEquals("b0123456789", r.value.id)
         assertTrue(seen.single().startsWith("POST /m/v1/bots "))
         assertTrue(seen.single().contains("\"name\":\"Ann\""))
@@ -102,6 +102,29 @@ class ManagerClientTest {
         key = ""
         assertEquals(ManagerResult.Kind.NoKey, (client.list() as ManagerResult.Fail).kind)
         assertTrue(seen.isEmpty())
+    }
+
+    @Test
+    fun modelsParseIntoProvidersModelsAndLevels() = runBlocking {
+        reply = """{"generated":1,"providers":[{"id":"deepseek","name":"DeepSeek","models":[{"id":"deepseek-flash","name":"DeepSeek Flash","efforts":["none","high"]}]},
+            {"id":"openai-codex","name":"ChatGPT","models":[{"id":"gpt-5.6-sol","name":"GPT-5.6 Sol","efforts":[]}]}]}"""
+        val c = (client.models() as ManagerResult.Ok).value
+        assertEquals(listOf("DeepSeek", "ChatGPT"), c.providers.map { it.name })
+        assertEquals(listOf("none", "high"), c.find("deepseek", "deepseek-flash")!!.efforts)
+        assertEquals("GPT-5.6 Sol", c.find("openai-codex", "gpt-5.6-sol")!!.name)
+        assertEquals(null, c.find("deepseek", "nope"))
+        assertEquals("ChatGPT", c.providerName("openai-codex"))
+        assertTrue(seen.single().startsWith("GET /m/v1/models "))
+    }
+
+    @Test
+    fun createAndUpdateCarryTheBotsDefaultModel() = runBlocking {
+        status = 201
+        reply = """{"id":"b0123456789","name":"A","modelProvider":"deepseek","modelId":"deepseek-flash","reasoning":"high"}"""
+        val bot = com.labserver.lablink.data.Bot(id = "x", name = "A", modelProvider = "deepseek", modelId = "deepseek-flash", reasoning = "high")
+        val r = (client.create(bot) as ManagerResult.Ok).value
+        assertEquals(Triple("deepseek", "deepseek-flash", "high"), Triple(r.modelProvider, r.modelId, r.reasoning))
+        assertTrue(seen.single().contains("\"modelProvider\":\"deepseek\"") && seen.single().contains("\"reasoning\":\"high\""))
     }
 
     @Test

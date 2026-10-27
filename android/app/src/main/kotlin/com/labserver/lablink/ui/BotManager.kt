@@ -59,6 +59,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.labserver.lablink.R
 import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.BotColors
+import com.labserver.lablink.data.Catalog
+import com.labserver.lablink.data.ModelPick
 
 private class Preset(
     val color: Long,
@@ -131,6 +133,7 @@ fun BotEditorDialog(
     saving: Boolean,
     error: String?,
     trashDays: Int,
+    catalog: Catalog,
     onSave: (Bot) -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
@@ -141,6 +144,8 @@ fun BotEditorDialog(
     var color by remember { mutableStateOf(initial?.color ?: BotColors.palette().random()) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showError by remember { mutableStateOf(false) }
+    var pick by remember { mutableStateOf(initial?.pick ?: ModelPick()) }
+    var showModels by remember { mutableStateOf(false) }
 
     val presetStrings = presets.map { p -> Triple(p.color, stringResource(p.name) to stringResource(p.role), stringResource(p.prompt)) }
 
@@ -153,7 +158,7 @@ fun BotEditorDialog(
                     actions = {
                         TextButton(enabled = !saving, onClick = {
                             if (name.isBlank()) showError = true
-                            else onSave((initial ?: Bot(name = name)).copy(name = name.trim(), role = role.trim(), systemPrompt = prompt.trim(), color = color))
+                            else onSave((initial ?: Bot(name = name)).copy(name = name.trim(), role = role.trim(), systemPrompt = prompt.trim(), color = color, modelProvider = pick.provider, modelId = pick.model, reasoning = pick.reasoning))
                         }) { Text(stringResource(if (saving) R.string.bot_saving else R.string.common_save)) }
                     },
                     windowInsets = WindowInsets(0),
@@ -234,6 +239,17 @@ fun BotEditorDialog(
                         minLines = 6, maxLines = 14, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(),
                     )
 
+                    // the bot's own default model and thinking level (the chat can still change them for itself)
+                    Surface(onClick = { showModels = true }, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            Text(stringResource(R.string.bot_default_model), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                if (pick.isDefault) stringResource(R.string.model_default_server) else pickLabel(catalog, pick),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                    }
+
                     if (initial != null && canDelete) {
                         OutlinedButton(
                             onClick = { confirmDelete = true },
@@ -248,6 +264,12 @@ fun BotEditorDialog(
         }
     }
 
+    if (showModels) {
+        ModelPickerSheet(
+            catalog = catalog, current = pick, defaultSubtitle = stringResource(R.string.model_default_server),
+            onPick = { pick = it }, onDismiss = { showModels = false },
+        )
+    }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },

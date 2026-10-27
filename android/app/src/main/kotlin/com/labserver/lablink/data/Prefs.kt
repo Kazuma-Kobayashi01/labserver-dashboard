@@ -72,6 +72,16 @@ class Prefs(context: Context) {
         get() = secret("botKey")
         set(v) = putSecret("botKey", v)
 
+    /** The model picked in the chat for [botId] (empty = the bot's own default). Kept per bot, until it is changed. */
+    fun pick(botId: String): ModelPick {
+        val parts = (sp.getString("pick.$botId", "") ?: "").split('|')
+        return if (parts.size == 3) ModelPick(parts[0], parts[1], parts[2]) else ModelPick()
+    }
+
+    fun setPick(botId: String, p: ModelPick) {
+        sp.edit().apply { if (p.isDefault) remove("pick.$botId") else putString("pick.$botId", "${p.provider}|${p.model}|${p.reasoning}") }.apply()
+    }
+
     /** The bot shown in the Lab bot tab. */
     var currentBotId: String
         get() = sp.getString("currentBotId", DEFAULT_BOT_ID) ?: DEFAULT_BOT_ID

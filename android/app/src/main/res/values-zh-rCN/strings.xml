@@ -161,4 +161,21 @@
     <string name="link_manager_key">bot 管理密钥</string>
     <string name="link_manager_url">bot 管理地址（可选）</string>
     <string name="link_manager_hint">创建和使用沙盒 bot 需要它。</string>
+
+    <!-- 模型和思考等级 -->
+    <string name="model_title">模型</string>
+    <string name="model_default">默认</string>
+    <string name="model_default_sub">这个 bot 设定的模型</string>
+    <string name="model_default_server">服务器自己的默认模型</string>
+    <string name="model_effort">思考</string>
+    <string name="model_effort_auto">自动</string>
+    <string name="effort_none">关闭</string>
+    <string name="effort_low">低</string>
+    <string name="effort_medium">中</string>
+    <string name="effort_high">高</string>
+    <string name="effort_xhigh">极高</string>
+    <string name="effort_max">最大</string>
+    <string name="model_empty">还没有可用的模型。请先连接，并在设置里填写 bot 管理密钥。</string>
+    <string name="model_done">完成</string>
+    <string name="bot_default_model">默认模型</string>
 </resources>

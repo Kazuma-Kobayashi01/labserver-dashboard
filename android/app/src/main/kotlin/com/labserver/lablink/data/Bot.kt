@@ -19,7 +19,13 @@ data class Bot(
     val systemPrompt: String = "",
     /** ARGB of the orb. */
     val color: Long = BotColors.first(),
-)
+    /** The bot's own default model and thinking level; empty = the server's default. */
+    val modelProvider: String = "",
+    val modelId: String = "",
+    val reasoning: String = "",
+) {
+    val pick: ModelPick get() = ModelPick(modelProvider, modelId, reasoning)
+}
 
 object BotColors {
     private val all = listOf(

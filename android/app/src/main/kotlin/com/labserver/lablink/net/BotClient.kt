@@ -2,6 +2,7 @@ package com.labserver.lablink.net
 
 import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.ChatMessage
+import com.labserver.lablink.data.ModelPick
 import com.labserver.lablink.data.Prefs
 import com.labserver.lablink.data.isSandbox
 import com.labserver.lablink.tunnel.TunnelController
@@ -38,21 +39,27 @@ sealed interface BotEvent {
  * Talks to the Lab bot (Hermes' OpenAI-compatible API, `labbot` profile) through the in-app tunnel's loopback proxy.
  * The reply is streamed as server-sent events: `reasoning_content` deltas, `content` deltas and tool-progress frames.
  */
-class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) {
+class BotClient(
+    private val prefs: Prefs,
+    private val tunnel: TunnelController,
+    /** Debug builds only: reach this address directly (an emulator talking to a manager forwarded to the Mac). */
+    private val direct: (String) -> Boolean = { false },
+) {
 
     /**
      * A sandbox bot is reached through the bot-manager (its prompt lives on the server, the manager key authorises);
      * the default bot goes straight to the `labbot` profile and sends its prompt as the first message.
      */
-    fun stream(history: List<ChatMessage>, bot: Bot): Flow<BotEvent> = callbackFlow {
+    fun stream(history: List<ChatMessage>, bot: Bot, pick: ModelPick = ModelPick()): Flow<BotEvent> = callbackFlow {
         val sandbox = bot.isSandbox
         val url = if (sandbox) "${prefs.effectiveManagerUrl}/bots/${bot.id}/chat/completions" else prefs.effectiveBotUrl + "/chat/completions"
         val key = if (sandbox) prefs.managerKey else prefs.botKey
         val systemPrompt = if (sandbox) "" else bot.systemPrompt
         val port = tunnel.proxyPort.value
+        val viaProxy = !direct(url)
         var call: Call? = null
         when {
-            port == 0 -> {
+            port == 0 && viaProxy -> {
                 trySend(BotEvent.Error(BotEvent.Error.Kind.NotConnected))
                 close()
             }
@@ -62,12 +69,12 @@ class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) 
             }
             else -> {
                 val client = OkHttpClient.Builder()
-                    .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
+                    .apply { if (viaProxy) proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port))) }
                     .connectTimeout(15, TimeUnit.SECONDS)
                     .readTimeout(120, TimeUnit.SECONDS) // the server sends a keepalive every 10 s
                     .build()
                 val req = try {
-                    request(history, url, key, systemPrompt)
+                    request(history, url, key, systemPrompt, sandbox, pick)
                 } catch (e: IllegalArgumentException) {
                     null // an address OkHttp cannot parse
                 }
@@ -105,13 +112,14 @@ class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) 
         awaitClose { call?.cancel() }
     }
 
-    private fun request(history: List<ChatMessage>, url: String, key: String, systemPrompt: String): Request {
+    private fun request(history: List<ChatMessage>, url: String, key: String, systemPrompt: String, sandbox: Boolean, pick: ModelPick): Request {
         val messages = JSONArray()
         if (systemPrompt.isNotBlank()) messages.put(JSONObject().put("role", "system").put("content", systemPrompt.trim()))
         history.filter { it.content.isNotBlank() }.takeLast(MAX_HISTORY).forEach {
             messages.put(JSONObject().put("role", it.role).put("content", it.content))
         }
         val body = JSONObject().put("model", "lab-bot").put("stream", true).put("messages", messages)
+        applyPick(body, sandbox, pick)
         return Request.Builder()
             .url(url)
             .header("Authorization", "Bearer $key")
@@ -160,7 +168,26 @@ class BotClient(private val prefs: Prefs, private val tunnel: TunnelController) 
         return false
     }
 
-    private companion object {
-        const val MAX_HISTORY = 24
+    companion object {
+        private const val MAX_HISTORY = 24
+
+        /**
+         * Puts the chosen model and thinking level into the request. The bot-manager takes them as plain fields and checks
+         * them against what it offers; the default bot talks to Hermes directly, which wants an explicit `provider` (a bare
+         * model name is ignored there) and the level inside `model_options`. Nothing is added for the default choice.
+         */
+        fun applyPick(body: JSONObject, sandbox: Boolean, pick: ModelPick) {
+            if (pick.isDefault) return
+            if (sandbox) {
+                body.put("modelProvider", pick.provider).put("modelId", pick.model)
+                if (pick.reasoning.isNotEmpty()) body.put("reasoning", pick.reasoning)
+            } else {
+                body.put("provider", pick.provider).put("model", pick.model)
+                if (pick.reasoning.isNotEmpty()) {
+                    val r = if (pick.reasoning == "none") JSONObject().put("enabled", false) else JSONObject().put("enabled", true).put("effort", pick.reasoning)
+                    body.put("model_options", JSONObject().put("reasoning", r))
+                }
+            }
+        }
     }
 }

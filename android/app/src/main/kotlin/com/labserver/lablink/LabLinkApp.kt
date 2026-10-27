@@ -31,7 +31,7 @@ class LabLinkApp : Application() {
                 direct = { debuggable && prefs.effectiveManagerUrl.contains("://10.0.2.2") },
             ),
         )
-        chat = ChatController(filesDir, BotClient(prefs, tunnel), manager, prefs) {
+        chat = ChatController(filesDir, BotClient(prefs, tunnel) { url -> debuggable && url.contains("://10.0.2.2") }, manager, prefs) {
             Bot(
                 id = DEFAULT_BOT_ID,
                 name = getString(R.string.bot_default_name),

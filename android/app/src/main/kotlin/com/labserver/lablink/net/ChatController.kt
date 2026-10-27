@@ -1,6 +1,9 @@
 package com.labserver.lablink.net
 
 import com.labserver.lablink.data.Bot
+import com.labserver.lablink.data.Catalog
+import com.labserver.lablink.data.CatalogCache
+import com.labserver.lablink.data.ModelPick
 import com.labserver.lablink.data.BotStore
 import com.labserver.lablink.data.ChatMessage
 import com.labserver.lablink.data.ChatStore
@@ -43,7 +46,14 @@ data class ChatUi(
     val syncing: Boolean = false,
     /** Why the last refresh failed (the lists then show what was cached). */
     val syncError: ManagerResult.Kind? = null,
+    /** The models the server offers. */
+    val catalog: Catalog = Catalog(),
+    /** The model picked in the chat for the current bot; empty = the bot's own default. */
+    val pick: ModelPick = ModelPick(),
 ) {
+    /** What the next message will use: the pick, else the bot's default (empty = the server's default). */
+    val effectivePick: ModelPick get() = if (pick.isDefault) bot.pick else pick
+
     val sandboxCount: Int get() = bots.count { it.isSandbox }
     val full: Boolean get() = sandboxCount >= limit
 }
@@ -65,6 +75,7 @@ class ChatController(
 
     private val botStore = BotStore(dir, makeDefault)
     private val cache = ListingCache(dir)
+    private val catalogCache = CatalogCache(dir)
 
     /** The only local bot. Custom local bots from earlier versions are dropped (with their chats). */
     private var local: Bot = botStore.load().let { saved ->
@@ -81,6 +92,7 @@ class ChatController(
         ChatUi(
             initialBots, initialBot, store.load(),
             trash = initialListing.trash, limit = initialListing.limit, trashDays = initialListing.trashDays, running = initialListing.running,
+            catalog = catalogCache.load(), pick = prefs.pick(initialBot.id),
         ),
     )
     val ui: StateFlow<ChatUi> = _ui
@@ -93,13 +105,15 @@ class ChatController(
         val chatFile = store
         val history = cur.messages + ChatMessage("user", t)
         val reply = ChatMessage("assistant", "")
+        // a sandbox bot keeps its own default on the server, so only an explicit pick is sent for it
+        val sendPick = if (bot.isSandbox && cur.pick.isDefault) ModelPick() else cur.effectivePick
         _ui.update { it.copy(messages = history + reply, streaming = true, working = false, error = null) }
 
         job = scope.launch {
             val content = StringBuilder()
             val reasoning = StringBuilder()
             try {
-                client.stream(history, bot).collect { ev ->
+                client.stream(history, bot, sendPick).collect { ev ->
                     when (ev) {
                         is BotEvent.Content -> {
                             content.append(ev.text)
@@ -160,7 +174,7 @@ class ChatController(
         job?.cancel()
         prefs.currentBotId = id
         store = ChatStore(dir, id)
-        _ui.value = cur.copy(bot = bot, messages = store.load(), streaming = false, working = false, error = null)
+        _ui.value = cur.copy(bot = bot, messages = store.load(), streaming = false, working = false, error = null, pick = prefs.pick(id))
     }
 
     /** Edits the default (local) bot. Sandbox bots go through [updateBot]. */
@@ -173,6 +187,12 @@ class ChatController(
 
     fun dismissError() = _ui.update { it.copy(error = null) }
 
+    /** The model and thinking level for this chat (empty = the bot's default); kept until changed. */
+    fun setPick(p: ModelPick) {
+        prefs.setPick(_ui.value.bot.id, p)
+        _ui.update { it.copy(pick = p) }
+    }
+
     fun managerAvailable(): Boolean = manager.available
 
     // ---- sandbox bots (the server is the source of truth)
@@ -181,13 +201,19 @@ class ChatController(
     suspend fun refresh() {
         _ui.update { it.copy(syncing = true) }
         when (val r = manager.list()) {
-            is ManagerResult.Ok -> applyListing(r.value)
+            is ManagerResult.Ok -> {
+                applyListing(r.value)
+                (manager.models() as? ManagerResult.Ok)?.let { m ->
+                    catalogCache.save(m.value)
+                    _ui.update { it.copy(catalog = m.value) }
+                }
+            }
             is ManagerResult.Fail -> _ui.update { it.copy(syncing = false, syncError = r.kind) }
         }
     }
 
-    suspend fun createBot(name: String, role: String, prompt: String, color: Long): ManagerResult<Bot> {
-        val r = manager.create(name, role, prompt, color)
+    suspend fun createBot(bot: Bot): ManagerResult<Bot> {
+        val r = manager.create(bot)
         if (r is ManagerResult.Ok) {
             refresh()
             select(r.value.id)
@@ -196,7 +222,7 @@ class ChatController(
     }
 
     suspend fun updateBot(bot: Bot): ManagerResult<Bot> {
-        val r = manager.update(bot.id, bot.name, bot.role, bot.systemPrompt, bot.color)
+        val r = manager.update(bot)
         if (r is ManagerResult.Ok) refresh()
         return r
     }
