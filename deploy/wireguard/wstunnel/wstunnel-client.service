@@ -1,0 +1,19 @@
+# Home server (MateBook host): /etc/systemd/system/wstunnel-client.service
+# /etc/wstunnel/env is the same file as on the relay. wg-gw's Endpoint is 10.0.0.1:51821 (the Incus bridge).
+[Unit]
+Description=wstunnel client (WireGuard over TCP to the relay)
+After=network-online.target incus.service
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/wstunnel/env
+ExecStart=/usr/local/bin/wstunnel client -L "udp://10.0.0.1:51821:127.0.0.1:51820?timeout_sec=0" --http-upgrade-path-prefix ${PREFIX} wss://35.213.93.187:9443
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

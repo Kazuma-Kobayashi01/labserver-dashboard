@@ -1,0 +1,20 @@
+# Relay (GCP VPS): /etc/systemd/system/wstunnel-server.service
+# /etc/wstunnel/env (mode 600) holds one line:  PREFIX=<random secret path prefix>
+# GCP firewall: allow TCP 9443. WireGuard itself stays on UDP 51820 for the other devices.
+[Unit]
+Description=wstunnel server (WireGuard over TCP for the home gateway)
+After=network-online.target docker.service
+
+[Service]
+EnvironmentFile=/etc/wstunnel/env
+ExecStart=/usr/local/bin/wstunnel server wss://0.0.0.0:9443 --restrict-to 127.0.0.1:51820 --restrict-http-upgrade-path-prefix ${PREFIX}
+Restart=always
+RestartSec=3
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
