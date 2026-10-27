@@ -11,7 +11,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
+import java.net.URLEncoder
 import org.json.JSONObject
 import java.io.IOException
 import java.net.InetSocketAddress
@@ -50,6 +53,36 @@ class ManagerClient(private val ep: ManagerEndpoint) {
     suspend fun trash(id: String): ManagerResult<Unit> = call("DELETE", "/bots/$id", null) { }
 
     suspend fun restore(id: String): ManagerResult<Bot> = call("POST", "/bots/$id/restore", JSONObject()) { parseBot(JSONObject(it)) }
+
+    /** Sends [file] to the bot's sandbox; the result is the path the sandbox sees it at. */
+    suspend fun upload(botId: String, displayName: String, file: File): ManagerResult<String> = withContext(Dispatchers.IO) {
+        val port = ep.proxyPort()
+        val direct = ep.direct()
+        when {
+            port == 0 && !direct -> return@withContext ManagerResult.Fail(ManagerResult.Kind.NotConnected)
+            ep.key().isBlank() -> return@withContext ManagerResult.Fail(ManagerResult.Kind.NoKey)
+        }
+        val request = try {
+            Request.Builder().url(ep.baseUrl() + "/bots/$botId/files")
+                .header("Authorization", "Bearer ${ep.key()}")
+                .header("X-Filename", URLEncoder.encode(displayName, "UTF-8").replace("+", "%20"))
+                .post(file.asRequestBody("application/octet-stream".toMediaType()))
+                .build()
+        } catch (e: IllegalArgumentException) {
+            return@withContext ManagerResult.Fail(ManagerResult.Kind.BadUrl, ep.baseUrl())
+        }
+        val client = OkHttpClient.Builder().apply {
+            if (!direct) proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
+        }.connectTimeout(15, TimeUnit.SECONDS).writeTimeout(120, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
+        try {
+            client.newCall(request).execute().use { resp ->
+                val text = resp.body.string()
+                if (resp.isSuccessful) ManagerResult.Ok(JSONObject(text).getString("path")) else fail(resp.code, text)
+            }
+        } catch (e: IOException) {
+            ManagerResult.Fail(ManagerResult.Kind.Unreachable, e.message ?: "")
+        }
+    }
 
     suspend fun purge(id: String): ManagerResult<Unit> = call("DELETE", "/bots/$id?purge=1", null) { }
 

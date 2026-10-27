@@ -178,4 +178,18 @@
     <string name="model_empty">还没有可用的模型。请先连接，并在设置里填写 bot 管理密钥。</string>
     <string name="model_done">完成</string>
     <string name="bot_default_model">默认模型</string>
+
+    <!-- 图片和文件 -->
+    <string name="attach_title">添加附件</string>
+    <string name="attach_camera">拍照</string>
+    <string name="attach_photos">相册</string>
+    <string name="attach_files">文件</string>
+    <string name="attach_remove">移除</string>
+    <string name="attach_view_close">关闭</string>
+    <string name="attach_problem_large">太大了（最大 25 MB）</string>
+    <string name="attach_problem_unreadable">读取失败</string>
+    <string name="attach_problem_images">每条消息最多 4 张图片</string>
+    <string name="attach_problem_nosandbox">这个 bot 只能读图片和文本文件；沙盒 bot 可以收任意文件</string>
+    <string name="attach_problem_upload">上传失败：请先连接，并检查 bot 管理密钥</string>
+    <string name="attach_wait">请等文件处理完</string>
 </resources>

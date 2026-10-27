@@ -1,6 +1,10 @@
 package com.labserver.lablink.net
 
+import com.labserver.lablink.data.Attachment
+import com.labserver.lablink.data.AttachmentKind
 import com.labserver.lablink.data.Bot
+import com.labserver.lablink.data.Limits
+import com.labserver.lablink.data.buildContent
 import com.labserver.lablink.data.ChatMessage
 import com.labserver.lablink.data.ModelPick
 import com.labserver.lablink.data.Prefs
@@ -44,6 +48,8 @@ class BotClient(
     private val tunnel: TunnelController,
     /** Debug builds only: reach this address directly (an emulator talking to a manager forwarded to the Mac). */
     private val direct: (String) -> Boolean = { false },
+    /** The stored bytes of an attachment (null when gone). */
+    private val readBytes: (Attachment) -> ByteArray? = { null },
 ) {
 
     /**
@@ -115,8 +121,11 @@ class BotClient(
     private fun request(history: List<ChatMessage>, url: String, key: String, systemPrompt: String, sandbox: Boolean, pick: ModelPick): Request {
         val messages = JSONArray()
         if (systemPrompt.isNotBlank()) messages.put(JSONObject().put("role", "system").put("content", systemPrompt.trim()))
-        history.filter { it.content.isNotBlank() }.takeLast(MAX_HISTORY).forEach {
-            messages.put(JSONObject().put("role", it.role).put("content", it.content))
+        val sent = history.filter { it.content.isNotBlank() || it.attachments.isNotEmpty() }.takeLast(MAX_HISTORY)
+        // only the latest messages with pictures carry them; earlier ones just name them
+        val withPictures = sent.indices.filter { i -> sent[i].attachments.any { it.kind == AttachmentKind.Image } }.takeLast(Limits.IMAGE_TURNS).toSet()
+        sent.forEachIndexed { i, m ->
+            messages.put(JSONObject().put("role", m.role).put("content", buildContent(m.content, m.attachments, i in withPictures, readBytes)))
         }
         val body = JSONObject().put("model", "lab-bot").put("stream", true).put("messages", messages)
         applyPick(body, sandbox, pick)

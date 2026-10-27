@@ -63,7 +63,7 @@ can also be tried on a desktop: `go run ./tunnel/cmd/labtunnel-cli config.json` 
 * The logo is a flat orb with two slanted pill eyes (`ui/BotAvatar.kt`, `res/drawable/ic_launcher_foreground.xml`). Each
   bot gets its own orb colour, and the orb acts out what the bot is doing: thinking, searching, answering
   (see [DESIGN.md](DESIGN.md)).
-* `./gradlew assembleRelease` builds `app-release.apk` (0.2.0). It is signed with `android/keystore.properties` (git-ignored: `storeFile`, `storePassword`, `keyAlias`, `keyPassword`) when that file exists, otherwise with the local Android debug key, so it updates an installed debug build in place. Switching to a real key later means uninstalling once (the signature changes).
+* `./gradlew assembleRelease` builds `app-release.apk` (0.3.0). It is signed with `android/keystore.properties` (git-ignored: `storeFile`, `storePassword`, `keyAlias`, `keyPassword`) when that file exists, otherwise with the local Android debug key, so it updates an installed debug build in place. Switching to a real key later means uninstalling once (the signature changes).
 * Not done yet: a foreground service to keep the tunnel alive in the background, light/dark WebView theming, file
   downloads from panels.
 
@@ -83,3 +83,16 @@ sheet with the models by provider and the levels the chosen model accepts. The b
 from the bot manager (`/m/v1/models`) and is cached. Messages (yours too) are shown as Markdown: all heading levels, bold, italic,
 strikethrough, inline code, links, nested and task lists, quotes, tables, rules, and fenced code in a box with a copy button and
 syntax colours (`diff` shows added and removed lines). The parser and the highlighter are plain Kotlin with unit tests.
+
+## Pictures and files
+
+The **+** under the message box takes a photo, picks photos (several) or any file; share from other apps to LabLink works too. What is
+attached sits above the text field as thumbnails and file pills (each with a remove button, a spinner while it is being worked on, and the
+reason when it failed), and in the sent message above the words; tap a picture to see it big.
+* Pictures are shrunk to 1568 px and re-encoded as JPEG, at most 4 per message, and sent inline; only the latest two messages that
+  carry pictures send them again, older ones are just named.
+* Text files up to 128 KB (code, md, json, csv, logs ...) are put into the message as `<file name="...">` blocks, for every bot.
+* Any other file (up to 25 MB) is uploaded to the sandbox bot (`POST /m/v1/bots/{id}/files`), which lands in its `attachments` folder, seen by the
+  sandbox as `/root/.hermes/attachments/<name>`; the message tells the bot the path. The default Lab bot has no sandbox, so it takes
+  pictures and text files only.
+The bytes live in the app's private storage (`files/attachments`) and go with the chat when it is cleared or the bot is removed.

@@ -178,4 +178,18 @@
     <string name="model_empty">No models yet. Connect, and fill in the bot manager key in Settings.</string>
     <string name="model_done">Done</string>
     <string name="bot_default_model">Default model</string>
+
+    <!-- pictures and files -->
+    <string name="attach_title">Attach</string>
+    <string name="attach_camera">Take a photo</string>
+    <string name="attach_photos">Photos</string>
+    <string name="attach_files">Files</string>
+    <string name="attach_remove">Remove</string>
+    <string name="attach_view_close">Close</string>
+    <string name="attach_problem_large">Too large (25 MB at most)</string>
+    <string name="attach_problem_unreadable">Could not read it</string>
+    <string name="attach_problem_images">At most 4 pictures per message</string>
+    <string name="attach_problem_nosandbox">This bot reads pictures and text files only; a sandbox bot can take any file</string>
+    <string name="attach_problem_upload">Upload failed: connect first, and check the bot manager key</string>
+    <string name="attach_wait">Wait for the files to finish</string>
 </resources>

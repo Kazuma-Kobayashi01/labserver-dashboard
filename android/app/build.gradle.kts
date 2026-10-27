@@ -14,8 +14,8 @@ android {
         applicationId = "com.labserver.lablink"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         // labtunnel.aar (gomobile) ships these two ABIs: arm64 phones and the x86_64 emulator
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }

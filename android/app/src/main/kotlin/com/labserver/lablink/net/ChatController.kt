@@ -1,6 +1,12 @@
 package com.labserver.lablink.net
 
+import com.labserver.lablink.data.AttachException
+import com.labserver.lablink.data.AttachProblem
+import com.labserver.lablink.data.Attachment
+import com.labserver.lablink.data.AttachmentKind
+import com.labserver.lablink.data.AttachmentStore
 import com.labserver.lablink.data.Bot
+import com.labserver.lablink.data.Limits
 import com.labserver.lablink.data.Catalog
 import com.labserver.lablink.data.CatalogCache
 import com.labserver.lablink.data.ModelPick
@@ -26,6 +32,18 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
+
+/** A file on its way into the next message: being copied or uploaded, ready, or failed. */
+data class Pending(
+    val id: String,
+    val name: String,
+    val state: State = State.Working,
+    val attachment: Attachment? = null,
+    val problem: AttachProblem? = null,
+) {
+    enum class State { Working, Ready, Failed }
+}
 
 data class ChatUi(
     /** The default bot first, then the sandbox bots the server lists. */
@@ -50,7 +68,10 @@ data class ChatUi(
     val catalog: Catalog = Catalog(),
     /** The model picked in the chat for the current bot; empty = the bot's own default. */
     val pick: ModelPick = ModelPick(),
+    /** Files attached to the message being written. */
+    val pending: List<Pending> = emptyList(),
 ) {
+    val canSend: Boolean get() = pending.none { it.state == Pending.State.Working }
     /** What the next message will use: the pick, else the bot's default (empty = the server's default). */
     val effectivePick: ModelPick get() = if (pick.isDefault) bot.pick else pick
 
@@ -67,6 +88,7 @@ class ChatController(
     private val dir: File,
     private val client: BotClient,
     private val manager: ManagerClient,
+    private val files: AttachmentStore,
     private val prefs: Prefs,
     makeDefault: () -> Bot,
 ) {
@@ -97,13 +119,22 @@ class ChatController(
     )
     val ui: StateFlow<ChatUi> = _ui
 
+    /** Sends [text] with the files attached so far. */
     fun send(text: String) {
+        val cur = _ui.value
+        if (!cur.canSend) return
+        val ready = cur.pending.mapNotNull { it.attachment.takeIf { _ -> it.state == Pending.State.Ready } }
+        _ui.update { it.copy(pending = emptyList()) }
+        post(text, ready)
+    }
+
+    private fun post(text: String, attachments: List<Attachment>) {
         val t = text.trim()
         val cur = _ui.value
-        if (t.isEmpty() || cur.streaming) return
+        if ((t.isEmpty() && attachments.isEmpty()) || cur.streaming) { files.delete(attachments.filter { _ -> cur.streaming }); return }
         val bot = cur.bot
         val chatFile = store
-        val history = cur.messages + ChatMessage("user", t)
+        val history = cur.messages + ChatMessage("user", t, attachments = attachments)
         val reply = ChatMessage("assistant", "")
         // a sandbox bot keeps its own default on the server, so only an explicit pick is sent for it
         val sendPick = if (bot.isSandbox && cur.pick.isDefault) ModelPick() else cur.effectivePick
@@ -154,15 +185,16 @@ class ChatController(
         if (cur.streaming) return
         val at = cur.messages.indexOfLast { it.role == "user" }
         if (at < 0) return
-        val text = cur.messages[at].content
+        val last = cur.messages[at]
         val kept = cur.messages.take(at)
         store.save(kept)
         _ui.update { it.copy(messages = kept, error = null) }
-        send(text)
+        post(last.content, last.attachments)
     }
 
     fun clear() {
         job?.cancel()
+        _ui.value.messages.forEach { files.delete(it.attachments) }
         store.save(emptyList())
         _ui.update { it.copy(messages = emptyList(), streaming = false, working = false, error = null) }
     }
@@ -172,9 +204,10 @@ class ChatController(
         if (id == cur.bot.id) return
         val bot = cur.bots.firstOrNull { it.id == id } ?: return
         job?.cancel()
+        dropPending()
         prefs.currentBotId = id
         store = ChatStore(dir, id)
-        _ui.value = cur.copy(bot = bot, messages = store.load(), streaming = false, working = false, error = null, pick = prefs.pick(id))
+        _ui.value = cur.copy(bot = bot, messages = store.load(), streaming = false, working = false, error = null, pick = prefs.pick(id), pending = emptyList())
     }
 
     /** Edits the default (local) bot. Sandbox bots go through [updateBot]. */
@@ -194,6 +227,63 @@ class ChatController(
     }
 
     fun managerAvailable(): Boolean = manager.available
+
+    // ---- files and pictures
+
+    /**
+     * Takes the files [uris] point at. Pictures are shrunk, text files are kept to be read inline, anything else is uploaded to
+     * the bot's sandbox (sandbox bots only). Each shows up as a chip while it is worked on; a failure leaves a chip saying why.
+     */
+    fun attach(uris: List<android.net.Uri>) {
+        val bot = _ui.value.bot
+        for (uri in uris) {
+            val id = UUID.randomUUID().toString()
+            _ui.update { it.copy(pending = it.pending + Pending(id, uri.lastPathSegment?.substringAfterLast('/') ?: "file")) }
+            scope.launch {
+                val result = try {
+                    val a = withContext(Dispatchers.IO) { files.import(uri) }
+                    try { Pending(id, a.name, Pending.State.Ready, withContext(Dispatchers.IO) { prepare(bot, a) }) }
+                    catch (e: AttachException) { files.delete(a); throw e }
+                } catch (e: AttachException) {
+                    Pending(id, _ui.value.pending.firstOrNull { it.id == id }?.name ?: "file", Pending.State.Failed, problem = e.problem)
+                } catch (e: Exception) {
+                    android.util.Log.w("LabLink", "could not attach $uri", e)
+                    Pending(id, "file", Pending.State.Failed, problem = AttachProblem.Unreadable)
+                }
+                _ui.update { st ->
+                    if (st.bot.id != bot.id) { result.attachment?.let(files::delete); st }
+                    else st.copy(pending = st.pending.map { if (it.id == id) result else it })
+                }
+            }
+        }
+    }
+
+    /** Checks the picture limit and, for a file, uploads it; returns what goes into the message. */
+    private suspend fun prepare(bot: Bot, a: Attachment): Attachment {
+        val taken = _ui.value.pending.count { it.attachment?.kind == AttachmentKind.Image }
+        if (a.kind == AttachmentKind.Image && taken >= Limits.MAX_IMAGES) throw AttachException(AttachProblem.TooManyImages)
+        if (a.kind != AttachmentKind.File) return a
+        if (!bot.isSandbox) throw AttachException(AttachProblem.NoSandbox)
+        return when (val r = manager.upload(bot.id, a.name, files.file(a))) {
+            is ManagerResult.Ok -> a.copy(remotePath = r.value)
+            is ManagerResult.Fail -> throw AttachException(if (r.kind == ManagerResult.Kind.Invalid && r.detail.contains("MB")) AttachProblem.TooLarge else AttachProblem.UploadFailed, r.detail)
+        }
+    }
+
+    fun removePending(id: String) {
+        val p = _ui.value.pending.firstOrNull { it.id == id } ?: return
+        p.attachment?.let(files::delete)
+        _ui.update { st -> st.copy(pending = st.pending.filterNot { it.id == id }) }
+    }
+
+    private fun dropPending() {
+        _ui.value.pending.forEach { p -> p.attachment?.let(files::delete) }
+    }
+
+    /** Removes the stored pictures and files of a conversation. */
+    private fun deleteChatFiles(botId: String) {
+        files.delete(ChatStore(dir, botId).load().flatMap { it.attachments })
+    }
 
     // ---- sandbox bots (the server is the source of truth)
 
@@ -246,6 +336,7 @@ class ChatController(
     suspend fun purgeBot(id: String): ManagerResult<Unit> {
         val r = manager.purge(id)
         if (r is ManagerResult.Ok) {
+            deleteChatFiles(id)
             ChatStore(dir, id).delete()
             refresh()
         }
@@ -258,7 +349,7 @@ class ChatController(
         // bots that are gone on the server (removed after their time in the trash) leave no conversation behind
         dir.listFiles { f -> f.name.startsWith("chat-") && f.name.endsWith(".json") }?.forEach { f ->
             val id = f.name.removePrefix("chat-").removeSuffix(".json")
-            if (isSandboxId(id) && id !in known) f.delete()
+            if (isSandboxId(id) && id !in known) { deleteChatFiles(id); f.delete() }
         }
         val bots = listOf(local) + l.bots
         val current = _ui.value.bot

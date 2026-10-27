@@ -128,6 +128,28 @@ class ManagerClientTest {
     }
 
     @Test
+    fun uploadSendsTheFileWithItsEncodedNameAndReturnsTheSandboxPath() = runBlocking {
+        status = 201
+        reply = """{"name":"报告 v2.pdf","size":5,"path":"/root/.hermes/attachments/报告 v2.pdf"}"""
+        val f = java.io.File.createTempFile("upload", ".bin").apply { writeBytes(byteArrayOf(1, 2, 3, 4, 5)); deleteOnExit() }
+        val r = client.upload("b0123456789", "报告 v2.pdf", f) as ManagerResult.Ok
+        assertEquals("/root/.hermes/attachments/报告 v2.pdf", r.value)
+        assertTrue(seen.single().startsWith("POST /m/v1/bots/b0123456789/files auth=Bearer $key"))
+    }
+
+    @Test
+    fun uploadErrorsAreMapped() = runBlocking {
+        val f = java.io.File.createTempFile("upload", ".bin").apply { writeBytes(byteArrayOf(1)); deleteOnExit() }
+        status = 413; reply = """{"error":{"code":"too_large","message":"files are limited to 25 MB"}}"""
+        assertEquals(ManagerResult.Kind.Other, (client.upload("b0123456789", "x", f) as ManagerResult.Fail).kind)
+        status = 401; reply = "{}"
+        assertEquals(ManagerResult.Kind.Auth, (client.upload("b0123456789", "x", f) as ManagerResult.Fail).kind)
+        connected = false
+        val offline = ManagerClient(ManagerEndpoint({ "http://127.0.0.1:${server.address.port}/m/v1" }, { key }, { 0 }))
+        assertEquals(ManagerResult.Kind.NotConnected, (offline.upload("b0123456789", "x", f) as ManagerResult.Fail).kind)
+    }
+
+    @Test
     fun sandboxIdsAreRecognised() {
         assertTrue(isSandboxId("b0123456789"))
         assertFalse(isSandboxId("lab"))

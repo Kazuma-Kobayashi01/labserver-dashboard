@@ -98,6 +98,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.labserver.lablink.R
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.rounded.Add
+import com.labserver.lablink.data.Attachment
+import com.labserver.lablink.data.Limits
+import com.labserver.lablink.net.Pending
 import com.labserver.lablink.data.isSandbox
 import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.ChatMessage
@@ -121,6 +128,15 @@ fun ChatScreen(
     var confirmClear by remember { mutableStateOf(false) }
     var showPicker by remember { mutableStateOf(false) }
     var showModel by remember { mutableStateOf(false) }
+    var showAttach by remember { mutableStateOf(false) }
+    var viewing by remember { mutableStateOf<Attachment?>(null) }
+    val ctx = LocalContext.current
+    val pickPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(Limits.MAX_IMAGES)) { app.chat.attach(it) }
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { app.chat.attach(it) }
+    var cameraFile by remember { mutableStateOf<Pair<java.io.File, android.net.Uri>?>(null) }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        cameraFile?.let { (f, uri) -> if (ok) app.chat.attach(listOf(uri)) else f.delete() }
+    }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val botColor = Color(ui.bot.color)
@@ -217,7 +233,7 @@ fun ChatScreen(
                     val msgs = ui.messages
                     items(msgs.asReversed(), key = { it.id }) { m ->
                         val last = m.id == msgs.last().id
-                        if (m.role == "user") UserBubble(m, botColor, Modifier.animateItem())
+                        if (m.role == "user") UserBubble(m, botColor, { viewing = it }, Modifier.animateItem())
                         else BotReply(
                             m, ui.bot, thinking = last && ui.streaming, working = last && ui.working,
                             canRegenerate = last && !ui.streaming, onRegenerate = app.chat::regenerate,
@@ -258,9 +274,21 @@ fun ChatScreen(
             onStop = app.chat::stop,
             modelLabel = pickLabel(ui.catalog, ui.effectivePick),
             onModel = { showModel = true },
+            pending = ui.pending, canSend = ui.canSend,
+            onAttach = { showAttach = true },
+            onRemove = app.chat::removePending,
         )
     }
 
+    if (showAttach) {
+        AttachSheet(
+            onCamera = { showAttach = false; app.attachments.newCameraFile(ctx).also { cameraFile = it }.let { takePhoto.launch(it.second) } },
+            onPhotos = { showAttach = false; pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            onFiles = { showAttach = false; pickFiles.launch(arrayOf("*/*")) },
+            onDismiss = { showAttach = false },
+        )
+    }
+    viewing?.let { ImageViewer(it) { viewing = null } }
     if (showModel) {
         ModelPickerSheet(
             catalog = ui.catalog, current = ui.pick,
@@ -370,16 +398,20 @@ private fun EmptyState(bot: Bot, onSuggest: (String) -> Unit) {
 
 /** The user's turn: a soft tonal bubble on the right. */
 @Composable
-private fun UserBubble(m: ChatMessage, botColor: Color, modifier: Modifier = Modifier) {
+private fun UserBubble(m: ChatMessage, botColor: Color, onView: (Attachment) -> Unit, modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Surface(
             color = lerp(MaterialTheme.colorScheme.surfaceContainerHigh, botColor, 0.12f),
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 8.dp),
             modifier = Modifier.widthIn(max = 300.dp).padding(start = 48.dp),
         ) {
-            SelectionContainer {
-                // the user's own text takes Markdown too (a pasted code block shows as one)
-                MarkdownText(m.content, MaterialTheme.colorScheme.onSurface, Modifier.padding(horizontal = 16.dp, vertical = 11.dp))
+            Column(Modifier.padding(horizontal = if (m.attachments.isEmpty()) 16.dp else 10.dp, vertical = if (m.attachments.isEmpty()) 11.dp else 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // pictures and files first, then the words (as in Claude and ChatGPT)
+                SentAttachments(m.attachments, onView)
+                if (m.content.isNotBlank()) SelectionContainer {
+                    // the user's own text takes Markdown too (a pasted code block shows as one)
+                    MarkdownText(m.content, MaterialTheme.colorScheme.onSurface, Modifier.padding(horizontal = if (m.attachments.isEmpty()) 0.dp else 6.dp))
+                }
             }
         }
     }
@@ -469,7 +501,10 @@ private fun ErrorStrip(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: ()
 
 /** One big rounded container, as in Grok and Gemini; the send button morphs into a stop square while streaming. */
 @Composable
-private fun Composer(hint: String, value: String, onValueChange: (String) -> Unit, streaming: Boolean, onSend: () -> Unit, onStop: () -> Unit, modelLabel: String, onModel: () -> Unit) {
+private fun Composer(
+    hint: String, value: String, onValueChange: (String) -> Unit, streaming: Boolean, onSend: () -> Unit, onStop: () -> Unit,
+    modelLabel: String, onModel: () -> Unit, pending: List<Pending>, canSend: Boolean, onAttach: () -> Unit, onRemove: (String) -> Unit,
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLowest,
         shape = RoundedCornerShape(30.dp),
@@ -479,6 +514,8 @@ private fun Composer(hint: String, value: String, onValueChange: (String) -> Uni
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f), RoundedCornerShape(30.dp)),
     ) {
       Column {
+        // what is attached to the message being written, as in Claude and opencode
+        PendingRow(pending, onRemove, Modifier.padding(top = 8.dp))
         Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 4.dp), verticalAlignment = Alignment.Bottom) {
             TextField(
                 value = value,
@@ -495,7 +532,7 @@ private fun Composer(hint: String, value: String, onValueChange: (String) -> Uni
                     disabledContainerColor = Color.Transparent,
                 ),
             )
-            val enabled = streaming || value.isNotBlank()
+            val enabled = streaming || (canSend && (value.isNotBlank() || pending.any { it.state == Pending.State.Ready }))
             // circle -> rounded square, on a spring
             val corner by animateDpAsState(
                 if (streaming) 14.dp else 22.dp,
@@ -518,14 +555,21 @@ private fun Composer(hint: String, value: String, onValueChange: (String) -> Uni
                 }
             }
         }
-        // the model and thinking level of this chat, as a small tag under the text
-        Row(
-            Modifier.padding(start = 14.dp, bottom = 8.dp).clip(RoundedCornerShape(50)).clickable(onClick = onModel)
-                .background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 10.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(modelLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 240.dp))
-            Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.model_title), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        // under the text: the attach button, and the model and thinking level of this chat as a small tag
+        Row(Modifier.padding(start = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainer).clickable(onClick = onAttach),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.attach_title), modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Spacer(Modifier.width(8.dp))
+            Row(
+                Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onModel)
+                    .background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(modelLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))
+                Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.model_title), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
       }
     }

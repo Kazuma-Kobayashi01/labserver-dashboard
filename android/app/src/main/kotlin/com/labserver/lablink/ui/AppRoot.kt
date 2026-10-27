@@ -78,6 +78,10 @@ fun AppRoot() {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    // a share from another app lands in the chat
+    val shared by app.chatRequested.collectAsStateWithLifecycle()
+    LaunchedEffect(shared) { if (shared > 0) screen = Screen.Chat }
+
     // the sandbox bots live on the server: read them when the tunnel comes up and whenever the drawer opens
     LaunchedEffect(port) { if (app.chat.managerAvailable()) app.chat.refresh() }
     LaunchedEffect(drawer.isOpen) { if (drawer.isOpen && app.chat.managerAvailable()) app.chat.refresh() }

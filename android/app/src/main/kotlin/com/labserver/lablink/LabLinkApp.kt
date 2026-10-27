@@ -2,6 +2,7 @@ package com.labserver.lablink
 
 import android.app.Application
 import android.content.Context
+import com.labserver.lablink.data.AttachmentStore
 import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.BotColors
 import com.labserver.lablink.data.DEFAULT_BOT_ID
@@ -19,10 +20,18 @@ class LabLinkApp : Application() {
         private set
     lateinit var chat: ChatController
         private set
+    lateinit var attachments: AttachmentStore
+        private set
+
+    /** Ticks when something outside the chat screen wants the chat shown (a share from another app). */
+    private val chatRequests = kotlinx.coroutines.flow.MutableStateFlow(0)
+    val chatRequested: kotlinx.coroutines.flow.StateFlow<Int> = chatRequests
+    fun showChat() { chatRequests.value += 1 }
 
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
+        attachments = AttachmentStore(this)
         tunnel = TunnelController(this, prefs)
         val debuggable = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
         val manager = ManagerClient(
@@ -31,7 +40,7 @@ class LabLinkApp : Application() {
                 direct = { debuggable && prefs.effectiveManagerUrl.contains("://10.0.2.2") },
             ),
         )
-        chat = ChatController(filesDir, BotClient(prefs, tunnel) { url -> debuggable && url.contains("://10.0.2.2") }, manager, prefs) {
+        chat = ChatController(filesDir, BotClient(prefs, tunnel, { url -> debuggable && url.contains("://10.0.2.2") }, attachments::read), manager, attachments, prefs) {
             Bot(
                 id = DEFAULT_BOT_ID,
                 name = getString(R.string.bot_default_name),

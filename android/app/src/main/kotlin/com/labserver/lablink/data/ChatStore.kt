@@ -13,6 +13,7 @@ data class ChatMessage(
     val reasoning: String = "",
     val id: String = UUID.randomUUID().toString(),
     val time: Long = System.currentTimeMillis(),
+    val attachments: List<Attachment> = emptyList(),
 )
 
 /** One running conversation per bot, kept as a small JSON file in the app's private storage. */
