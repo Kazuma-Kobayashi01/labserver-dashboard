@@ -33,6 +33,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -76,11 +78,13 @@ private val panels = listOf(
 /** Home lab: the connection switch on top, then the panels as a grid. Panels only open inside the app. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeLabScreen(tunnel: TunnelState, onBack: () -> Unit, onToggle: () -> Unit, onBlocked: () -> Unit) {
+fun HomeLabScreen(tunnel: TunnelState, onBack: () -> Unit, onToggle: () -> Unit, onBlocked: () -> Unit, onPanelOpen: (Boolean) -> Unit = {}) {
     val prefs = LocalContext.current.labApp.prefs
     var openId by rememberSaveable { mutableStateOf<String?>(null) }
     val open = panels.firstOrNull { it.id == openId }
     val up = tunnel is TunnelState.On
+    LaunchedEffect(open != null) { onPanelOpen(open != null) }
+    DisposableEffect(Unit) { onDispose { onPanelOpen(false) } }
 
     if (open != null) {
         val domain = prefs.domain

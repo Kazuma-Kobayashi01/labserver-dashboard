@@ -68,6 +68,8 @@ fun AppRoot() {
     var editing by remember { mutableStateOf<Bot?>(null) }
     var creating by remember { mutableStateOf(false) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
+    // a panel's WebView needs the edge swipes for itself, so the drawer gesture is off while one is open
+    var panelOpen by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -84,6 +86,7 @@ fun AppRoot() {
 
     ModalNavigationDrawer(
         drawerState = drawer,
+        gesturesEnabled = !panelOpen || drawer.isOpen,
         drawerContent = {
             ModalDrawerSheet {
                 Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 16.dp)) {
@@ -153,6 +156,7 @@ fun AppRoot() {
                         onBack = { screen = Screen.Chat },
                         onToggle = toggleTunnel,
                         onBlocked = { scope.launch { snackbar.showSnackbar(needConnect) } },
+                        onPanelOpen = { panelOpen = it },
                     )
                     Screen.Settings -> LinkScreen(tunnel, onBack = { screen = Screen.Chat })
                 }
