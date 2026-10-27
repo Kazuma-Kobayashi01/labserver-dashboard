@@ -51,7 +51,7 @@ can also be tried on a desktop: `go run ./tunnel/cmd/labtunnel-cli config.json` 
 
 1. **Settings** (drawer) → copy the **public key** (the phone generates its own key pair).
 2. On the server side, add the phone as a WireGuard device: `deploy/wireguard/add-device.sh` (see that README).
-3. **Settings** → fill in the hub endpoint (`host:port`) and the hub's public key. Or copy a wg-quick config to the
+3. **Settings** → fill in the hub's public key, the TCP relay (`wss://host:port`) and its secret; the tunnel always runs over TCP through the bundled wstunnel (run `scripts/fetch-wstunnel.sh` once before building). Or copy a wg-quick config to the
    clipboard and tap **Paste a config**. The default overlay address is `10.77.0.4`.
 4. Lab bot: set the API key (see `deploy/hermes/labbot.md`); the default address is `http://bot.<domain>/p/labbot/v1`.
 5. **Connect to home**. Panels and Lab bot work while it says *Connected*.

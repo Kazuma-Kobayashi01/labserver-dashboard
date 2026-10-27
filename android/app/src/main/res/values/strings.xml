@@ -57,7 +57,7 @@
     <string name="link_disconnect">Disconnect</string>
     <string name="link_connecting">Connecting…</string>
     <string name="link_handshake">Last handshake %1$s ago</string>
-    <string name="link_waiting">Waiting for the hub… check the endpoint and keys</string>
+    <string name="link_waiting">Waiting for the hub… check the TCP relay, secret and keys</string>
     <string name="link_in_app_only">The tunnel only exists inside this app. Nothing else on the phone uses it.</string>
     <string name="link_device">This device</string>
     <string name="link_device_key">Public key (give it to the hub)</string>
@@ -67,9 +67,11 @@
     <string name="link_regen_confirm">Replace the key? The hub must be updated with the new public key.</string>
     <string name="link_hub">Hub</string>
     <string name="link_address">Address in the tunnel</string>
-    <string name="link_endpoint">Hub endpoint (host:port)</string>
     <string name="link_hub_key">Hub public key</string>
     <string name="link_psk">Preshared key (optional)</string>
+    <string name="link_tcp_url">TCP relay (wss://host:port)</string>
+    <string name="link_tcp_prefix">TCP secret</string>
+    <string name="link_tcp_hint">The tunnel always runs over TCP through this relay (UDP does not get through).</string>
     <string name="link_import">Paste a config</string>
     <string name="link_import_done">Config imported</string>
     <string name="link_import_empty">The clipboard has no WireGuard config</string>
@@ -78,7 +80,7 @@
     <string name="link_bot_key">API key</string>
     <string name="link_save">Save</string>
     <string name="link_saved">Saved</string>
-    <string name="link_missing">Fill in the hub endpoint and public key first</string>
+    <string name="link_missing">Fill in the hub public key and the TCP relay with its secret first</string>
     <string name="common_cancel">Cancel</string>
     <string name="common_ok">OK</string>
 

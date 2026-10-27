@@ -21,9 +21,6 @@ class Prefs(context: Context) {
     var address: String
         get() = sp.getString("address", "10.77.0.4") ?: ""
         set(v) = sp.edit().putString("address", v.trim()).apply()
-    var endpoint: String
-        get() = sp.getString("endpoint", "") ?: ""
-        set(v) = sp.edit().putString("endpoint", v.trim()).apply()
     var hubPublicKey: String
         get() = sp.getString("hubPublicKey", "") ?: ""
         set(v) = sp.edit().putString("hubPublicKey", v.trim()).apply()
@@ -45,6 +42,14 @@ class Prefs(context: Context) {
     var botBaseUrl: String
         get() = sp.getString("botBaseUrl", "") ?: ""
         set(v) = sp.edit().putString("botBaseUrl", v.trim().trimEnd('/')).apply()
+
+    /** Relay address of the optional TCP carrier (`wss://host:port`); empty = plain UDP. */
+    var tcpUrl: String
+        get() = sp.getString("tcpUrl", "") ?: ""
+        set(v) = sp.edit().putString("tcpUrl", v.trim()).apply()
+    var tcpPrefix: String
+        get() = secret("tcpPrefix")
+        set(v) = putSecret("tcpPrefix", v)
 
     var privateKey: String
         get() = secret("privateKey")

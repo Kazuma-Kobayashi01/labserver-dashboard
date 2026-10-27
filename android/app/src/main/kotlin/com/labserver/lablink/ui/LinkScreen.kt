@@ -70,9 +70,10 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
     val prefs = app.prefs
 
     var address by remember { mutableStateOf(prefs.address) }
-    var endpoint by remember { mutableStateOf(prefs.endpoint) }
     var hubKey by remember { mutableStateOf(prefs.hubPublicKey) }
     var psk by remember { mutableStateOf(prefs.presharedKey) }
+    var tcpUrl by remember { mutableStateOf(prefs.tcpUrl) }
+    var tcpPrefix by remember { mutableStateOf(prefs.tcpPrefix) }
     var botUrl by remember { mutableStateOf(prefs.botBaseUrl.takeIf { Prefs.isHttpUrl(it) } ?: "") }
     var botUrlError by remember { mutableStateOf(false) }
     var botKey by remember { mutableStateOf(prefs.botKey) }
@@ -93,9 +94,10 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
         }
         botUrlError = false
         prefs.address = address
-        prefs.endpoint = endpoint
         prefs.hubPublicKey = hubKey
         prefs.presharedKey = psk
+        prefs.tcpUrl = tcpUrl
+        prefs.tcpPrefix = tcpPrefix
         prefs.botBaseUrl = botUrl
         prefs.botKey = botKey
         prefs.domain = domain
@@ -142,9 +144,11 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
 
             Section(stringResource(R.string.link_hub)) {
                 Field(address, { address = it }, stringResource(R.string.link_address))
-                Field(endpoint, { endpoint = it }, stringResource(R.string.link_endpoint))
                 Field(hubKey, { hubKey = it }, stringResource(R.string.link_hub_key))
                 Field(psk, { psk = it }, stringResource(R.string.link_psk), secret = true)
+                Field(tcpUrl, { tcpUrl = it }, stringResource(R.string.link_tcp_url), placeholder = "wss://host:9443")
+                Field(tcpPrefix, { tcpPrefix = it }, stringResource(R.string.link_tcp_prefix), secret = true)
+                Text(stringResource(R.string.link_tcp_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = {
                     val clip = ctx.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty()
                     val p = parseWgQuick(clip)
@@ -152,9 +156,10 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
                         Toast.makeText(ctx, importEmpty, Toast.LENGTH_SHORT).show()
                     } else {
                         p.address?.let { address = it }
-                        p.endpoint?.let { endpoint = it }
                         p.hubPublicKey?.let { hubKey = it }
                         p.presharedKey?.let { psk = it }
+                        p.tcpUrl?.let { tcpUrl = it }
+                        p.tcpPrefix?.let { tcpPrefix = it }
                         p.allowedIPs?.let { allowedIPs = it }
                         p.privateKey?.let { prefs.privateKey = it; pub = app.tunnel.publicKey() }
                         Toast.makeText(ctx, importDone, Toast.LENGTH_SHORT).show()

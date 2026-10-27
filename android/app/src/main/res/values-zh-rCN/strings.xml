@@ -57,7 +57,7 @@
     <string name="link_disconnect">断开连接</string>
     <string name="link_connecting">连接中…</string>
     <string name="link_handshake">上次握手 %1$s 前</string>
-    <string name="link_waiting">正在等待中转点… 请检查地址和密钥</string>
+    <string name="link_waiting">正在等待中转点… 请检查 TCP 中转、暗号和密钥</string>
     <string name="link_in_app_only">隧道只存在于本应用内，手机上其它应用都用不了它。</string>
     <string name="link_device">本设备</string>
     <string name="link_device_key">公钥（交给中转点）</string>
@@ -67,9 +67,11 @@
     <string name="link_regen_confirm">要更换密钥吗？中转点上的公钥也需要同步更新。</string>
     <string name="link_hub">中转点</string>
     <string name="link_address">隧道内地址</string>
-    <string name="link_endpoint">中转点地址（主机:端口）</string>
     <string name="link_hub_key">中转点公钥</string>
     <string name="link_psk">预共享密钥（可选）</string>
+    <string name="link_tcp_url">TCP 中转（wss://主机:端口）</string>
+    <string name="link_tcp_prefix">TCP 暗号</string>
+    <string name="link_tcp_hint">隧道固定经这个中转走 TCP（UDP 连不通）。</string>
     <string name="link_import">粘贴配置</string>
     <string name="link_import_done">已导入配置</string>
     <string name="link_import_empty">剪贴板里没有 WireGuard 配置</string>
@@ -78,7 +80,7 @@
     <string name="link_bot_key">接口密钥</string>
     <string name="link_save">保存</string>
     <string name="link_saved">已保存</string>
-    <string name="link_missing">请先填写中转点地址和公钥</string>
+    <string name="link_missing">请先填写中转点公钥、TCP 中转和暗号</string>
     <string name="common_cancel">取消</string>
     <string name="common_ok">确定</string>
 

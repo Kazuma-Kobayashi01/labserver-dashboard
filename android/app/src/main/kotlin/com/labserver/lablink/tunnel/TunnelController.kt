@@ -31,6 +31,7 @@ sealed interface TunnelState {
  */
 class TunnelController(context: Context, private val prefs: Prefs) {
     private val appContext = context.applicationContext
+    private val carrier = TcpCarrier(context, prefs)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
@@ -63,12 +64,15 @@ class TunnelController(context: Context, private val prefs: Prefs) {
             val since = System.currentTimeMillis()
             _state.value = TunnelState.Connecting(since)
             try {
-                if (prefs.endpoint.isBlank() || prefs.hubPublicKey.isBlank()) {
+                if (!carrier.enabled || prefs.hubPublicKey.isBlank()) {
                     _state.value = TunnelState.Failed("", missingConfig = true)
                     return@launch
                 }
                 ensureKey()
-                val port = withContext(Dispatchers.IO) { Labtunnel.start(configJson()).toInt() }
+                val port = withContext(Dispatchers.IO) {
+                    carrier.start()
+                    Labtunnel.start(configJson()).toInt()
+                }
                 _port.value = port
                 watchNetwork()
                 while (isActive) {
@@ -97,11 +101,12 @@ class TunnelController(context: Context, private val prefs: Prefs) {
         _state.value = TunnelState.Off
     }
 
-    fun log(): String = Labtunnel.log()
+    fun log(): String = Labtunnel.log() + carrier.log().let { if (it.isBlank()) "" else "\n--- wstunnel ---\n$it" }
 
     private fun teardown() {
         unwatchNetwork()
         Labtunnel.stop()
+        carrier.stop()
         _port.value = 0
     }
 
@@ -110,7 +115,7 @@ class TunnelController(context: Context, private val prefs: Prefs) {
         put("address", prefs.address)
         put("peerPublicKey", prefs.hubPublicKey)
         put("presharedKey", prefs.presharedKey)
-        put("endpoint", prefs.endpoint)
+        put("endpoint", carrier.endpoint)
         put("allowedIPs", prefs.allowedIPs)
         put("keepalive", 25)
         put("mtu", 1280)
@@ -125,7 +130,11 @@ class TunnelController(context: Context, private val prefs: Prefs) {
         ignoreNetUntil = System.currentTimeMillis() + 3000 // the callback fires once right away on registration
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                if (System.currentTimeMillis() > ignoreNetUntil) Labtunnel.rebind()
+                if (System.currentTimeMillis() > ignoreNetUntil) {
+                    // the TCP connection of the old network is gone: reconnect it before the tunnel reopens its socket
+                    runCatching { carrier.start() }
+                    Labtunnel.rebind()
+                }
             }
         }
         cm.registerDefaultNetworkCallback(cb)

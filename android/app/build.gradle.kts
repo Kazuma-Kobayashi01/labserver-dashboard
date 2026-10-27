@@ -28,7 +28,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true }
-    packaging { jniLibs.useLegacyPackaging = false }
+    // libwstunnel.so is an executable: it must be extracted to nativeLibraryDir
+    packaging { jniLibs.useLegacyPackaging = true }
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
