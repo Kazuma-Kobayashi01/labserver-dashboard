@@ -31,6 +31,12 @@ cp "$BIN" "$APP/Contents/MacOS/LabLink"
 cp Resources/lablink-helper Resources/install.sh "$APP/Contents/Resources/"
 chmod 755 "$APP/Contents/Resources/lablink-helper" "$APP/Contents/Resources/install.sh"
 for b in wg wireguard-go; do cp -L "$TOOLS_DIR/$b" "$APP/Contents/Resources/$b"; chmod 755 "$APP/Contents/Resources/$b"; done
+# TCP transport (see Sources/LabLink/Transport.swift): wstunnel for this arch must be in TOOLS_DIR
+[ -x "$TOOLS_DIR/wstunnel" ] || { echo "missing $TOOLS_DIR/wstunnel (official wstunnel release for macOS $ARCH, see deploy/wireguard/README.md)" >&2; exit 1; }
+if true; then
+  lipo -archs "$TOOLS_DIR/wstunnel" | grep -qw "$ARCH" || { echo "$TOOLS_DIR/wstunnel is not $ARCH" >&2; exit 1; }
+  cp -L "$TOOLS_DIR/wstunnel" "$APP/Contents/Resources/wstunnel"; chmod 755 "$APP/Contents/Resources/wstunnel"
+fi
 ICONSET=$(mktemp -d)/AppIcon.iconset
 swift scripts/make-icon.swift "$ICONSET"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"

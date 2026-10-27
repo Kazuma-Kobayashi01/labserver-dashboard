@@ -132,6 +132,8 @@ final class TunnelModel: ObservableObject {
         if phase != .connecting && phase != .disconnecting { phase = up ? .on : .off }
 
         if let iface = iface {
+            // the tunnel may have been started by an earlier run of the app; its TCP carrier must be running too
+            if TCPTransport.enabled, phase == .on, !(await TCPTransport.isRunning()) { _ = await TCPTransport.start() }
             latency = await Self.pingMs(Self.homeGateway)
             if let c = Self.counters(iface) { rxBytes = c.rx; txBytes = c.tx }
             atHome = false
@@ -164,6 +166,16 @@ final class TunnelModel: ObservableObject {
         guard phase == .off else { return }
         if atHome { show(L10n.t("toast.athome")); return }
         phase = .connecting
+        guard TCPTransport.enabled else {
+            show("\(L10n.t("toast.connfail")): ~/.config/lablink/wstunnel.env / wstunnel")
+            phase = .off
+            return
+        }
+        if !(await TCPTransport.start()) {
+            show("\(L10n.t("toast.connfail")): wstunnel")
+            phase = .off
+            return
+        }
         let r = await runHelper("up")
         if r.status != 0 {
             show(r.out.contains("-128") || r.out.lowercased().contains("cancel") ? L10n.t("toast.cancelled") : "\(L10n.t("toast.connfail")): \(r.out.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))")
@@ -176,6 +188,7 @@ final class TunnelModel: ObservableObject {
         guard phase == .on else { return }
         phase = .disconnecting
         let r = await runHelper("down")
+        if r.status == 0 { await TCPTransport.stop() }
         if r.status != 0 { show("\(L10n.t("toast.discfail")): \(r.out.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))") }
         phase = Self.tunnelInterface() != nil ? .on : .off
         await refresh()
