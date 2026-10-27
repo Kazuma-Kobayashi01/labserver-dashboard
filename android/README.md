@@ -63,7 +63,7 @@ can also be tried on a desktop: `go run ./tunnel/cmd/labtunnel-cli config.json` 
 * The logo is a flat orb with two slanted pill eyes (`ui/BotAvatar.kt`, `res/drawable/ic_launcher_foreground.xml`). Each
   bot gets its own orb colour, and the orb acts out what the bot is doing: thinking, searching, answering
   (see [DESIGN.md](DESIGN.md)).
-* The debug APK is signed with the local debug key. For a release build create your own keystore (it is git-ignored).
+* `./gradlew assembleRelease` builds `app-release.apk` (0.2.0). It is signed with `android/keystore.properties` (git-ignored: `storeFile`, `storePassword`, `keyAlias`, `keyPassword`) when that file exists, otherwise with the local Android debug key, so it updates an installed debug build in place. Switching to a real key later means uninstalling once (the signature changes).
 * Not done yet: a foreground service to keep the tunnel alive in the background, light/dark WebView theming, file
   downloads from panels.
 

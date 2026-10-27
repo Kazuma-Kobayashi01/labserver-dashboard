@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -12,15 +14,29 @@ android {
         applicationId = "com.labserver.lablink"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         // labtunnel.aar (gomobile) ships these two ABIs: arm64 phones and the x86_64 emulator
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
+    // Release signing: keystore.properties (git-ignored; storeFile, storePassword, keyAlias, keyPassword) when it exists, else the
+    // local Android debug key, so a release build can update an installed debug build in place (same signature).
+    signingConfigs {
+        create("release") {
+            val props = Properties().apply {
+                rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+            }
+            storeFile = file(props.getProperty("storeFile") ?: "${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = props.getProperty("storePassword") ?: "android"
+            keyAlias = props.getProperty("keyAlias") ?: "androiddebugkey"
+            keyPassword = props.getProperty("keyPassword") ?: "android"
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
