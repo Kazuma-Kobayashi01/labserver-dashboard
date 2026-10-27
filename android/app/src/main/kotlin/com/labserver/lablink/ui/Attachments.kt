@@ -1,6 +1,8 @@
 package com.labserver.lablink.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -121,7 +123,10 @@ fun PendingRow(list: List<Pending>, onRemove: (String) -> Unit, modifier: Modifi
     androidx.compose.foundation.lazy.LazyRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp)) {
         items(list.size, key = { list[it].id }) { i ->
             val p = list[i]
-            Box {
+            // a new chip pops in with a little spring
+            val pop = remember { androidx.compose.animation.core.Animatable(0.6f) }
+            LaunchedEffect(Unit) { pop.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = 500f)) }
+            Box(Modifier.graphicsLayer { scaleX = pop.value; scaleY = pop.value; alpha = pop.value.coerceIn(0f, 1f) }) {
                 when {
                     p.state == Pending.State.Failed -> Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.padding(top = 6.dp, end = 6.dp)) {
                         Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp).widthIn(max = 230.dp), verticalAlignment = Alignment.CenterVertically) {

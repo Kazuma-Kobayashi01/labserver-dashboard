@@ -192,4 +192,19 @@
     <string name="attach_problem_nosandbox">This bot reads pictures and text files only; a sandbox bot can take any file</string>
     <string name="attach_problem_upload">Upload failed: connect first, and check the bot manager key</string>
     <string name="attach_wait">Wait for the files to finish</string>
+
+    <!-- library -->
+    <string name="nav_library">Library</string>
+    <string name="library_title">Library</string>
+    <string name="library_empty">Nothing here yet. Pictures and files you send show up here, so you can send them again.</string>
+    <string name="library_all">All</string>
+    <string name="library_images">Pictures</string>
+    <string name="library_files">Files</string>
+    <string name="library_selected">%1$d selected</string>
+    <string name="library_send_again">Send again</string>
+    <string name="library_delete">Delete</string>
+    <string name="library_delete_confirm">Delete %1$d from the library for good? Older messages will show them empty.</string>
+    <string name="library_pick">Add (%1$d)</string>
+    <string name="library_total">%1$d items, %2$s</string>
+    <string name="attach_library">From the library</string>
 </resources>

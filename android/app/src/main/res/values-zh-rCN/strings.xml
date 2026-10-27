@@ -192,4 +192,19 @@
     <string name="attach_problem_nosandbox">这个 bot 只能读图片和文本文件；沙盒 bot 可以收任意文件</string>
     <string name="attach_problem_upload">上传失败：请先连接，并检查 bot 管理密钥</string>
     <string name="attach_wait">请等文件处理完</string>
+
+    <!-- 资料库 -->
+    <string name="nav_library">资料库</string>
+    <string name="library_title">资料库</string>
+    <string name="library_empty">这里还没有东西。你发送过的图片和文件会出现在这里，可以再次发送。</string>
+    <string name="library_all">全部</string>
+    <string name="library_images">图片</string>
+    <string name="library_files">文件</string>
+    <string name="library_selected">已选 %1$d 项</string>
+    <string name="library_send_again">再次发送</string>
+    <string name="library_delete">删除</string>
+    <string name="library_delete_confirm">从资料库永久删除 %1$d 项？更早的聊天里它们会显示为空。</string>
+    <string name="library_pick">添加（%1$d）</string>
+    <string name="library_total">共 %1$d 项，%2$s</string>
+    <string name="attach_library">从资料库选择</string>
 </resources>

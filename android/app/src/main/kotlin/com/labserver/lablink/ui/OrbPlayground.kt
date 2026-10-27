@@ -26,12 +26,11 @@ import kotlinx.coroutines.delay
 import kotlin.random.Random
 
 /**
- * Debug builds only: every orb mood side by side, plus one orb running through a whole reply, for designing the motion.
- * adb shell am start -n com.labserver.lablink/.MainActivity --ez orb_playground true
+ * Debug builds only: all ten orb moves, each in its own cell (the six that need a touch play on their own every few seconds),
+ * plus one orb running through a whole reply. adb shell am start -n com.labserver.lablink/.MainActivity --ez orb_playground true
  */
 @Composable
 fun OrbPlayground() {
-    // a fake reply: think, look something up, answer in bursts, rest
     var mood by remember { mutableStateOf(OrbMood.Idle) }
     var talk by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
@@ -46,28 +45,48 @@ fun OrbPlayground() {
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { tick++; delay(90L + Random.nextLong(120)) } }
 
+    val smile = rememberOrbController(); val roll = rememberOrbController(); val jelly = rememberOrbController(); val hop = rememberOrbController()
+    LaunchedEffect(Unit) {
+        while (true) {
+            smile.pressDown(); delay(1400); smile.pressUp(); delay(900)
+            roll.play(OrbFx.Roll); delay(1300)
+            jelly.play(OrbFx.Jelly); delay(1500)
+            hop.play(OrbFx.Hop); delay(1200)
+        }
+    }
+
     Column(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).systemBarsPadding().padding(20.dp),
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).systemBarsPadding().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Lab bot · ${mood.name}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        BotAvatar(190.dp, mood = mood, talk = talk, alive = true)
+        Text("Lab bot · ${mood.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        BotAvatar(120.dp, mood = mood, talk = talk, alive = true)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Cell("Idle", OrbMood.Idle, 0, Color(0xFF4B3FD8))
-            Cell("Thinking", OrbMood.Thinking, 0, Color(0xFF8E5CF6))
+            Cell("1 Idle", OrbMood.Idle, 0, Color(0xFF4B3FD8))
+            Cell("2 Thinking", OrbMood.Thinking, 0, Color(0xFF8E5CF6))
+            Cell("3 Searching", OrbMood.Working, 0, Color(0xFF3B9BE8))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Cell("Working", OrbMood.Working, 0, Color(0xFF3B9BE8))
-            Cell("Answering", OrbMood.Answering, tick, Color(0xFF2FBF8F))
+            Cell("4 Answering", OrbMood.Answering, tick, Color(0xFF2FBF8F))
+            Cell("5 Squint-smile", OrbMood.Idle, 0, Color(0xFFE8589B), smile)
+            Cell("6 Roll", OrbMood.Idle, 0, Color(0xFFF2724D), roll)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            Cell("7 Jelly", OrbMood.Idle, 0, Color(0xFFF2B63D), jelly)
+            Cell("8 Hop", OrbMood.Idle, 0, Color(0xFF2B2B3A), hop)
+            Cell("9 Sleepy", OrbMood.Sleepy, 0, Color(0xFF4B3FD8))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            Cell("10 Shake no", if (tick % 40 < 20) OrbMood.Error else OrbMood.Idle, 0, Color(0xFF8E5CF6))
         }
     }
 }
 
 @Composable
-private fun Cell(label: String, mood: OrbMood, talk: Int, color: Color) {
+private fun Cell(label: String, mood: OrbMood, talk: Int, color: Color, controller: OrbController? = null) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        BotAvatar(120.dp, color = color, mood = mood, talk = talk, alive = true)
-        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        BotAvatar(92.dp, color = color, mood = mood, talk = talk, alive = true, controller = controller)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

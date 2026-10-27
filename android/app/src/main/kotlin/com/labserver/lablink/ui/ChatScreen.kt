@@ -129,6 +129,7 @@ fun ChatScreen(
     var showPicker by remember { mutableStateOf(false) }
     var showModel by remember { mutableStateOf(false) }
     var showAttach by remember { mutableStateOf(false) }
+    var showLibrary by remember { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<Attachment?>(null) }
     val ctx = LocalContext.current
     val pickPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(Limits.MAX_IMAGES)) { app.chat.attach(it) }
@@ -146,7 +147,7 @@ fun ChatScreen(
     val jumpVisible by remember { derivedStateOf { listState.firstVisibleItemIndex > 1 } }
     // the reply being written right now, if any: drives the orb's mood in the top bar
     val live = ui.messages.lastOrNull()?.takeIf { ui.streaming && it.role == "assistant" }
-    val liveMood = orbMood(ui.streaming, ui.working, !live?.content.isNullOrBlank())
+    val liveMood = orbMood(ui.streaming, ui.working, !live?.content.isNullOrBlank(), failed = ui.error != null)
 
     // newest message at index 0 (the list is reversed), so growing replies stay pinned to the bottom
     LaunchedEffect(ui.messages.size, ui.bot.id) { if (ui.messages.isNotEmpty()) listState.animateScrollToItem(0) }
@@ -285,10 +286,12 @@ fun ChatScreen(
             onCamera = { showAttach = false; app.attachments.newCameraFile(ctx).also { cameraFile = it }.let { takePhoto.launch(it.second) } },
             onPhotos = { showAttach = false; pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
             onFiles = { showAttach = false; pickFiles.launch(arrayOf("*/*")) },
+            onLibrary = { showAttach = false; showLibrary = true },
             onDismiss = { showAttach = false },
         )
     }
     viewing?.let { ImageViewer(it) { viewing = null } }
+    if (showLibrary) LibraryPickerSheet(onAdd = app.chat::attachFromLibrary, onDismiss = { showLibrary = false })
     if (showModel) {
         ModelPickerSheet(
             catalog = ui.catalog, current = ui.pick,
@@ -515,7 +518,11 @@ private fun Composer(
     ) {
       Column {
         // what is attached to the message being written, as in Claude and opencode
-        PendingRow(pending, onRemove, Modifier.padding(top = 8.dp))
+        androidx.compose.animation.AnimatedVisibility(
+            pending.isNotEmpty(),
+            enter = androidx.compose.animation.expandVertically(spring(dampingRatio = 0.8f, stiffness = 400f)) + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
+        ) { PendingRow(pending, onRemove, Modifier.padding(top = 8.dp)) }
         Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 4.dp), verticalAlignment = Alignment.Bottom) {
             TextField(
                 value = value,
@@ -558,12 +565,12 @@ private fun Composer(
         // under the text: the attach button, and the model and thinking level of this chat as a small tag
         Row(Modifier.padding(start = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainer).clickable(onClick = onAttach),
+                Modifier.size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainer).pressable(onAttach),
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.attach_title), modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             Spacer(Modifier.width(8.dp))
             Row(
-                Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onModel)
+                Modifier.pressable(onModel).clip(RoundedCornerShape(50))
                     .background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 10.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

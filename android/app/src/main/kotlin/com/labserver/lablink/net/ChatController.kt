@@ -7,6 +7,9 @@ import com.labserver.lablink.data.AttachmentKind
 import com.labserver.lablink.data.AttachmentStore
 import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.Limits
+import com.labserver.lablink.data.LibraryItem
+import com.labserver.lablink.data.LibraryStore
+import com.labserver.lablink.data.mergeSent
 import com.labserver.lablink.data.Catalog
 import com.labserver.lablink.data.CatalogCache
 import com.labserver.lablink.data.ModelPick
@@ -70,6 +73,8 @@ data class ChatUi(
     val pick: ModelPick = ModelPick(),
     /** Files attached to the message being written. */
     val pending: List<Pending> = emptyList(),
+    /** Everything sent so far, newest first. */
+    val library: List<LibraryItem> = emptyList(),
 ) {
     val canSend: Boolean get() = pending.none { it.state == Pending.State.Working }
     /** What the next message will use: the pick, else the bot's default (empty = the server's default). */
@@ -98,6 +103,7 @@ class ChatController(
     private val botStore = BotStore(dir, makeDefault)
     private val cache = ListingCache(dir)
     private val catalogCache = CatalogCache(dir)
+    private val libraryStore = LibraryStore(dir)
 
     /** The only local bot. Custom local bots from earlier versions are dropped (with their chats). */
     private var local: Bot = botStore.load().let { saved ->
@@ -114,10 +120,14 @@ class ChatController(
         ChatUi(
             initialBots, initialBot, store.load(),
             trash = initialListing.trash, limit = initialListing.limit, trashDays = initialListing.trashDays, running = initialListing.running,
-            catalog = catalogCache.load(), pick = prefs.pick(initialBot.id),
+            catalog = catalogCache.load(), pick = prefs.pick(initialBot.id), library = libraryStore.load(),
         ),
     )
     val ui: StateFlow<ChatUi> = _ui
+
+    init {
+        scope.launch(Dispatchers.IO) { sweepOrphans() }
+    }
 
     /** Sends [text] with the files attached so far. */
     fun send(text: String) {
@@ -135,6 +145,7 @@ class ChatController(
         val bot = cur.bot
         val chatFile = store
         val history = cur.messages + ChatMessage("user", t, attachments = attachments)
+        if (attachments.isNotEmpty()) saveLibrary(mergeSent(cur.library, attachments, cur.bot.id, System.currentTimeMillis()))
         val reply = ChatMessage("assistant", "")
         // a sandbox bot keeps its own default on the server, so only an explicit pick is sent for it
         val sendPick = if (bot.isSandbox && cur.pick.isDefault) ModelPick() else cur.effectivePick
@@ -194,7 +205,7 @@ class ChatController(
 
     fun clear() {
         job?.cancel()
-        _ui.value.messages.forEach { files.delete(it.attachments) }
+        // only the words and the context go; what was sent stays in the library
         store.save(emptyList())
         _ui.update { it.copy(messages = emptyList(), streaming = false, working = false, error = null) }
     }
@@ -272,17 +283,64 @@ class ChatController(
 
     fun removePending(id: String) {
         val p = _ui.value.pending.firstOrNull { it.id == id } ?: return
-        p.attachment?.let(files::delete)
+        p.attachment?.let(::discardUnsent)
         _ui.update { st -> st.copy(pending = st.pending.filterNot { it.id == id }) }
     }
 
     private fun dropPending() {
-        _ui.value.pending.forEach { p -> p.attachment?.let(files::delete) }
+        _ui.value.pending.forEach { p -> p.attachment?.let(::discardUnsent) }
     }
 
-    /** Removes the stored pictures and files of a conversation. */
-    private fun deleteChatFiles(botId: String) {
-        files.delete(ChatStore(dir, botId).load().flatMap { it.attachments })
+    /** A file that was attached but never sent goes; one that is in the library (or in an earlier message) stays. */
+    private fun discardUnsent(a: Attachment) {
+        if (_ui.value.library.none { it.attachment.local == a.local }) files.delete(a)
+    }
+
+    private fun saveLibrary(list: List<LibraryItem>) {
+        libraryStore.save(list)
+        _ui.update { it.copy(library = list) }
+    }
+
+    /** Takes things out of the library for good: the files go too (older messages then show an empty thumbnail). */
+    fun deleteFromLibrary(locals: Set<String>) {
+        val gone = _ui.value.library.filter { it.attachment.local in locals }
+        files.delete(gone.map { it.attachment })
+        saveLibrary(_ui.value.library.filterNot { it.attachment.local in locals })
+    }
+
+    /** Attaches things from the library to the message being written, as if they had just been picked. */
+    fun attachFromLibrary(locals: List<String>) {
+        val bot = _ui.value.bot
+        for (local in locals) {
+            val item = _ui.value.library.firstOrNull { it.attachment.local == local } ?: continue
+            val id = UUID.randomUUID().toString()
+            val a = item.attachment.copy(id = id)
+            _ui.update { it.copy(pending = it.pending + Pending(id, a.name)) }
+            scope.launch {
+                val result = try {
+                    // the sandbox copy is reused when it is this bot's; another bot gets its own upload
+                    val sameBot = item.botId == bot.id && a.remotePath.isNotEmpty()
+                    val ready = withContext(Dispatchers.IO) { if (a.kind == AttachmentKind.File && sameBot && bot.isSandbox) a else prepare(bot, a.copy(remotePath = "")) }
+                    Pending(id, a.name, Pending.State.Ready, ready)
+                } catch (e: AttachException) {
+                    Pending(id, a.name, Pending.State.Failed, problem = e.problem)
+                } catch (e: Exception) {
+                    Pending(id, a.name, Pending.State.Failed, problem = AttachProblem.Unreadable)
+                }
+                _ui.update { st -> if (st.bot.id != bot.id) st else st.copy(pending = st.pending.map { if (it.id == id) result else it }) }
+            }
+        }
+    }
+
+    /** Files that nothing refers to (a failed upload, a removed chip) are cleaned away when the app starts. */
+    private fun sweepOrphans() {
+        val used = HashSet<String>()
+        _ui.value.library.forEach { used += it.attachment.local }
+        dir.listFiles { f -> f.name.startsWith("chat") && f.name.endsWith(".json") }?.forEach { f ->
+            runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<List<ChatMessage>>(f.readText()) }
+                .getOrNull()?.forEach { m -> m.attachments.forEach { used += it.local } }
+        }
+        files.keepOnly(used)
     }
 
     // ---- sandbox bots (the server is the source of truth)
@@ -336,8 +394,7 @@ class ChatController(
     suspend fun purgeBot(id: String): ManagerResult<Unit> {
         val r = manager.purge(id)
         if (r is ManagerResult.Ok) {
-            deleteChatFiles(id)
-            ChatStore(dir, id).delete()
+            ChatStore(dir, id).delete()   // what was sent stays in the library
             refresh()
         }
         return r
@@ -349,7 +406,7 @@ class ChatController(
         // bots that are gone on the server (removed after their time in the trash) leave no conversation behind
         dir.listFiles { f -> f.name.startsWith("chat-") && f.name.endsWith(".json") }?.forEach { f ->
             val id = f.name.removePrefix("chat-").removeSuffix(".json")
-            if (isSandboxId(id) && id !in known) { deleteChatFiles(id); f.delete() }
+            if (isSandboxId(id) && id !in known) f.delete()
         }
         val bots = listOf(local) + l.bots
         val current = _ui.value.bot

@@ -63,7 +63,7 @@ can also be tried on a desktop: `go run ./tunnel/cmd/labtunnel-cli config.json` 
 * The logo is a flat orb with two slanted pill eyes (`ui/BotAvatar.kt`, `res/drawable/ic_launcher_foreground.xml`). Each
   bot gets its own orb colour, and the orb acts out what the bot is doing: thinking, searching, answering
   (see [DESIGN.md](DESIGN.md)).
-* `./gradlew assembleRelease` builds `app-release.apk` (0.3.0). It is signed with `android/keystore.properties` (git-ignored: `storeFile`, `storePassword`, `keyAlias`, `keyPassword`) when that file exists, otherwise with the local Android debug key, so it updates an installed debug build in place. Switching to a real key later means uninstalling once (the signature changes).
+* `./gradlew assembleRelease` builds `app-release.apk` (0.4.0). It is signed with `android/keystore.properties` (git-ignored: `storeFile`, `storePassword`, `keyAlias`, `keyPassword`) when that file exists, otherwise with the local Android debug key, so it updates an installed debug build in place. Switching to a real key later means uninstalling once (the signature changes).
 * Not done yet: a foreground service to keep the tunnel alive in the background, light/dark WebView theming, file
   downloads from panels.
 
@@ -96,3 +96,18 @@ reason when it failed), and in the sent message above the words; tap a picture t
   sandbox as `/root/.hermes/attachments/<name>`; the message tells the bot the path. The default Lab bot has no sandbox, so it takes
   pictures and text files only.
 The bytes live in the app's private storage (`files/attachments`) and go with the chat when it is cleared or the bot is removed.
+
+## Library
+
+Everything you send (pictures, text files, other files) is kept in the **Library** (drawer), newest first, with filters for pictures and files.
+New chat clears only the words and the context: what was sent stays in the Library until you delete it there. Long-press to select (or tap a
+file); then **send again** puts the picks into the message being written, or **delete** removes them for good (older messages then show them
+empty). The **+** menu has "From the library" too. A file already uploaded to the same sandbox bot is reused, another bot gets its own upload.
+Files that nothing refers to (a failed upload, a removed chip) are cleaned up at start, except from the last ten minutes.
+
+## The orb's ten moves (`ui/BotAvatar.kt`)
+
+Idle blink, thinking, searching, answering (set by the chat), sleepy (a hero orb left alone for 20 s dozes off with little z's) and
+error (a shake of the head when a reply failed); and by touch on a hero orb (empty chat, bot editor): press and hold = squint-smile with
+blushing cheeks, tap = roll / jelly wobble / hop in turn. `adb shell am start -n com.labserver.lablink/.MainActivity --ez orb_playground true`
+(debug builds) shows all ten.

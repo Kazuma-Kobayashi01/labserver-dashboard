@@ -31,6 +31,12 @@ class AttachmentStore(context: Context) {
     fun delete(a: Attachment) { file(a).delete() }
     fun delete(list: List<Attachment>) = list.forEach(::delete)
 
+    /** Deletes every stored file that is not named in [used], except those from the last ten minutes (being attached right now). */
+    fun keepOnly(used: Set<String>) {
+        val recent = System.currentTimeMillis() - 10 * 60 * 1000
+        dir.listFiles()?.forEach { if (it.isFile && it.name !in used && it.lastModified() < recent) it.delete() }
+    }
+
     /** Copies (and for pictures, shrinks) what [uri] points at. Blocking: call it off the main thread. */
     fun import(uri: Uri): Attachment {
         val (name, declared) = describe(uri)

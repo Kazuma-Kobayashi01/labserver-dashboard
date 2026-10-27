@@ -2,6 +2,17 @@ package com.labserver.lablink.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +27,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
@@ -54,7 +66,7 @@ import com.labserver.lablink.labApp
 import com.labserver.lablink.tunnel.TunnelState
 import kotlinx.coroutines.launch
 
-enum class Screen { Chat, HomeLab, Settings, Trash }
+enum class Screen { Chat, HomeLab, Settings, Trash, Library }
 
 /**
  * Chat is home (as in Gemini / ChatGPT / Claude); everything else lives in the navigation drawer: the connection
@@ -111,7 +123,7 @@ fun AppRoot() {
             ModalDrawerSheet {
                 Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 16.dp)) {
                     Row(Modifier.padding(start = 8.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        BotHero(44.dp)
+                        BotHero(44.dp, interactive = false)
                         Spacer(Modifier.width(10.dp))
                         Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     }
@@ -142,6 +154,12 @@ fun AppRoot() {
                         onClick = { newBot(); scope.launch { drawer.close() } },
                     )
                     NavigationDrawerItem(
+                        icon = { Icon(Icons.Rounded.PhotoLibrary, contentDescription = null) },
+                        label = { Text(stringResource(R.string.nav_library)) },
+                        selected = screen == Screen.Library,
+                        onClick = { go(Screen.Library) },
+                    )
+                    NavigationDrawerItem(
                         icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
                         label = { Text(stringResource(R.string.nav_trash) + if (chat.trash.isNotEmpty()) " (${chat.trash.size})" else "") },
                         selected = screen == Screen.Trash,
@@ -167,8 +185,23 @@ fun AppRoot() {
         },
     ) {
         Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { inner ->
-            Box(Modifier.padding(inner).consumeWindowInsets(inner)) {
-                when (screen) {
+            // screens ease into each other: a page opening slides in from the right over the chat and the chat settles back
+            AnimatedContent(
+                targetState = screen,
+                modifier = Modifier.padding(inner).consumeWindowInsets(inner),
+                transitionSpec = {
+                    val opening = targetState != Screen.Chat
+                    val spring = spring<androidx.compose.ui.unit.IntOffset>(dampingRatio = 0.9f, stiffness = 380f)
+                    if (opening) {
+                        (slideInHorizontally(spring) { it / 5 } + fadeIn(tween(220))) togetherWith (fadeOut(tween(160)) + scaleOut(tween(220), targetScale = 0.97f))
+                    } else {
+                        (fadeIn(tween(240)) + scaleIn(tween(240), initialScale = 0.97f)) togetherWith (slideOutHorizontally(spring) { it / 5 } + fadeOut(tween(160)))
+                    }
+                },
+                label = "screen",
+            ) { current ->
+                Box(Modifier.fillMaxSize()) {
+                when (current) {
                     Screen.Chat -> ChatScreen(
                         tunnel,
                         onOpenDrawer = { scope.launch { drawer.open() } },
@@ -185,10 +218,15 @@ fun AppRoot() {
                         onPanelOpen = { panelOpen = it },
                     )
                     Screen.Settings -> LinkScreen(tunnel, onBack = { screen = Screen.Chat })
+                    Screen.Library -> LibraryScreen(
+                        onBack = { screen = Screen.Chat },
+                        onSendAgain = { app.chat.attachFromLibrary(it); screen = Screen.Chat },
+                    )
                     Screen.Trash -> TrashScreen(
                         connected = port != 0 || app.chat.managerAvailable(), onBack = { screen = Screen.Chat },
                         onMessage = { scope.launch { snackbar.showSnackbar(it) } },
                     )
+                }
                 }
             }
         }

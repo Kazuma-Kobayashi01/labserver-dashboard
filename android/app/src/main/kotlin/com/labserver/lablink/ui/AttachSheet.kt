@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -27,13 +28,14 @@ import com.labserver.lablink.R
 /** Where the attachment comes from: the camera, the photo picker or any file. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AttachSheet(onCamera: () -> Unit, onPhotos: () -> Unit, onFiles: () -> Unit, onDismiss: () -> Unit) {
+fun AttachSheet(onCamera: () -> Unit, onPhotos: () -> Unit, onFiles: () -> Unit, onLibrary: () -> Unit, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.attach_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
             Option(Icons.Rounded.CameraAlt, stringResource(R.string.attach_camera), onCamera)
             Option(Icons.Rounded.Image, stringResource(R.string.attach_photos), onPhotos)
             Option(Icons.Rounded.AttachFile, stringResource(R.string.attach_files), onFiles)
+            Option(Icons.Rounded.PhotoLibrary, stringResource(R.string.attach_library), onLibrary)
         }
     }
 }
