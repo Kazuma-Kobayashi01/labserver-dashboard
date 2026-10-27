@@ -82,6 +82,11 @@ class Base(unittest.TestCase):
         os.makedirs(self.cfg.profiles)
         os.makedirs(os.path.join(self.cfg.profiles, self.cfg.template))
         open(os.path.join(self.cfg.profiles, self.cfg.template, ".env"), "w").write("DEEPSEEK_API_KEY=model-key\n")
+        os.makedirs(self.cfg.state_dir, exist_ok=True)
+        json.dump({"generated": 1, "providers": [
+            {"id": "deepseek", "name": "DeepSeek", "models": [{"id": "deepseek-flash", "name": "Flash", "efforts": ["none", "high"]}]},
+            {"id": "openai-codex", "name": "ChatGPT", "models": [{"id": "gpt-5.6-sol", "name": "Sol", "efforts": ["low", "high", "xhigh"]}]},
+        ]}, open(os.path.join(self.cfg.state_dir, "catalog.json"), "w"))
         self.fb = FakeBackend(self.cfg)
         self.up = ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
         self.fb.upstream_port = self.up.server_address[1]
@@ -253,6 +258,61 @@ class Api(Base):
         self.call("DELETE", f"/m/v1/bots/{b['id']}")
         self.assertEqual(self.call("POST", f"/m/v1/bots/{b['id']}/chat/completions",
                                    {"messages": [{"role": "user", "content": "hi"}]})[0], 404)
+
+
+class Models(Base):
+    def test_catalog_is_served(self):
+        s, body = self.call("GET", "/m/v1/models")
+        self.assertEqual(s, 200)
+        self.assertEqual([p["id"] for p in json.loads(body)["providers"]], ["deepseek", "openai-codex"])
+        self.assertEqual(self.call("GET", "/m/v1/models", key="wrong")[0], 401)
+
+    def test_a_bot_can_have_a_default_model_and_level(self):
+        b = self.make("A", modelProvider="openai-codex", modelId="gpt-5.6-sol", reasoning="high")
+        got = json.loads(self.call("GET", "/m/v1/bots")[1])["bots"][0]
+        self.assertEqual((got["modelProvider"], got["modelId"], got["reasoning"]), ("openai-codex", "gpt-5.6-sol", "high"))
+        s, _ = self.call("PATCH", f"/m/v1/bots/{b['id']}", {"modelProvider": "deepseek", "modelId": "deepseek-flash", "reasoning": "none"})
+        self.assertEqual(s, 200)
+        s, _ = self.call("PATCH", f"/m/v1/bots/{b['id']}", {"modelProvider": "", "modelId": "", "reasoning": ""})
+        self.assertEqual(s, 200)   # back to the default
+
+    def test_unknown_models_and_levels_are_refused(self):
+        self.assertEqual(self.call("POST", "/m/v1/bots", {"name": "x", "modelProvider": "deepseek", "modelId": "nope"})[0], 400)
+        self.assertEqual(self.call("POST", "/m/v1/bots", {"name": "x", "modelProvider": "deepseek", "modelId": "deepseek-flash", "reasoning": "xhigh"})[0], 400)
+        self.assertEqual(self.call("POST", "/m/v1/bots", {"name": "x", "reasoning": "high"})[0], 400)
+        self.assertEqual(json.loads(self.call("GET", "/m/v1/bots")[1])["bots"], [])
+
+    def chat(self, bid, **extra):
+        return self.call("POST", f"/m/v1/bots/{bid}/chat/completions", {"messages": [{"role": "user", "content": "hi"}], **extra})
+
+    def test_chat_sends_the_requested_model_and_level_upstream(self):
+        b = self.make("A")
+        self.assertEqual(self.chat(b["id"], modelProvider="openai-codex", modelId="gpt-5.6-sol", reasoning="xhigh")[0], 200)
+        sent = Upstream.seen[-1][2]
+        self.assertEqual((sent["provider"], sent["model"]), ("openai-codex", "gpt-5.6-sol"))
+        self.assertEqual(sent["model_options"], {"reasoning": {"enabled": True, "effort": "xhigh"}})
+        self.chat(b["id"], modelProvider="deepseek", modelId="deepseek-flash", reasoning="none")
+        self.assertEqual(Upstream.seen[-1][2]["model_options"], {"reasoning": {"enabled": False}})
+
+    def test_chat_uses_the_bots_default_and_otherwise_the_global_model(self):
+        plain = self.make("plain")
+        self.chat(plain["id"])
+        sent = Upstream.seen[-1][2]
+        self.assertEqual(sent["model"], "hermes-agent")
+        self.assertNotIn("provider", sent)
+        self.assertNotIn("model_options", sent)
+        withdef = self.make("def", modelProvider="deepseek", modelId="deepseek-flash", reasoning="high")
+        self.chat(withdef["id"])
+        sent = Upstream.seen[-1][2]
+        self.assertEqual((sent["provider"], sent["model"]), ("deepseek", "deepseek-flash"))
+        self.assertEqual(sent["model_options"]["reasoning"]["effort"], "high")
+
+    def test_chat_refuses_models_that_are_not_offered(self):
+        b = self.make("A")
+        before = len(Upstream.seen)
+        self.assertEqual(self.chat(b["id"], modelProvider="openai-codex", modelId="gpt-5.5")[0], 400)
+        self.assertEqual(self.chat(b["id"], modelProvider="deepseek", modelId="deepseek-flash", reasoning="xhigh")[0], 400)
+        self.assertEqual(len(Upstream.seen), before)
 
 
 class Janitor(Base):

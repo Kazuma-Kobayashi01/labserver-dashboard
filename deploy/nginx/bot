@@ -16,7 +16,7 @@ server {
 
     # bot-manager (sandboxed bots: list / create / trash / chat), loopback :8650 through an Incus proxy device;
     # the manager checks its own Bearer key, and only its documented routes are let through here.
-    location ~ "^/m/v1/(health|bots(/b[0-9a-f]{10}(/restore|/chat/completions)?)?)$" {   # quoted: braces
+    location ~ "^/m/v1/(health|models|bots(/b[0-9a-f]{10}(/restore|/chat/completions)?)?)$" {   # quoted: braces
         proxy_pass http://127.0.0.1:8650;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

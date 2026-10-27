@@ -54,6 +54,7 @@ class Config:
         self.host = e.get("LISTEN_HOST", "127.0.0.1")
         self.port = int(e.get("LISTEN_PORT", "8650"))
         self.janitor_seconds = int(e.get("JANITOR_SECONDS", "300"))
+        self.catalog_path = e.get("CATALOG_PATH", "")
 
     @property
     def profiles(self):
@@ -70,6 +71,58 @@ class Config:
     def check(self):
         if len(self.manager_key) < 24:
             raise SystemExit("MANAGER_KEY must be at least 24 characters")
+
+
+# ----------------------------------------------------------------------------------------------- model catalog
+
+EFFORTS = ("none", "low", "medium", "high", "xhigh")
+
+
+class Catalog:
+    """The models and thinking levels that really work, as written by probe_models.py (re-read when the file changes)."""
+
+    def __init__(self, path):
+        self.path = path
+        self._mtime = None
+        self._data = {"providers": []}
+
+    def data(self):
+        try:
+            m = os.stat(self.path).st_mtime
+            if m != self._mtime:
+                with open(self.path) as f:
+                    self._data = json.load(f)
+                self._mtime = m
+        except (OSError, ValueError):
+            pass
+        return self._data
+
+    def model(self, provider, model):
+        for p in self.data().get("providers", []):
+            if p["id"] == provider:
+                for m in p["models"]:
+                    if m["id"] == model:
+                        return m
+        return None
+
+    def check(self, provider, model, reasoning):
+        """Raises a 400 when the choice is not offered; empty values mean 'the default'."""
+        if not provider and not model:
+            if reasoning:
+                raise ApiError(400, "bad_request", "reasoning needs a model")
+            return
+        m = self.model(provider, model)
+        if not m:
+            raise ApiError(400, "unknown_model", "that model is not available")
+        if reasoning and reasoning not in m.get("efforts", []):
+            raise ApiError(400, "unknown_reasoning", "that thinking level is not available for this model")
+
+
+def upstream_options(reasoning):
+    """Hermes' per-request model_options for one of our levels."""
+    if not reasoning:
+        return None
+    return {"reasoning": {"enabled": False}} if reasoning == "none" else {"reasoning": {"enabled": True, "effort": reasoning}}
 
 
 # ----------------------------------------------------------------------------------------------- registry
@@ -205,6 +258,7 @@ class Manager:
         self.backend = backend or Backend(cfg)
         os.makedirs(cfg.trash, exist_ok=True)
         self.reg = Registry(os.path.join(cfg.state_dir, "registry.json"))
+        self.catalog = Catalog(cfg.catalog_path or os.path.join(cfg.state_dir, "catalog.json"))
 
     # -- paths
     def profile_dir(self, bid):
@@ -229,6 +283,14 @@ class Manager:
                 out[k] = v.strip()
             elif k == "name" and not partial:
                 raise ApiError(400, "bad_request", "name is required")
+        for k in ("modelProvider", "modelId", "reasoning"):
+            if k in spec:
+                v = spec[k]
+                if v is None:
+                    v = ""
+                if not isinstance(v, str) or len(v) > 80 or re.search(r"[\r\n\x00]", v):
+                    raise ApiError(400, "bad_request", f"{k} must be a short string")
+                out[k] = v.strip()
         if "color" in spec:
             c = spec["color"]
             if not isinstance(c, int) or isinstance(c, bool) or not (0 <= c <= 0xFFFFFFFF):
@@ -239,6 +301,7 @@ class Manager:
     # -- views
     def _view(self, b, with_state=True):
         v = {k: b.get(k) for k in ("id", "name", "role", "color", "systemPrompt", "createdAt")}
+        v.update(modelProvider=b.get("modelProvider", ""), modelId=b.get("modelId", ""), reasoning=b.get("reasoning", ""))
         if b["state"] == "trashed":
             v["trashedAt"] = b.get("trashedAt")
             if self.cfg.trash_days > 0 and b.get("trashedAt"):
@@ -270,6 +333,7 @@ class Manager:
     # -- create
     def create(self, spec):
         data = self._clean(spec)
+        self.catalog.check(data.get("modelProvider", ""), data.get("modelId", ""), data.get("reasoning", ""))
         with self.reg.lock:
             if self.reg.count("active") + self.reg.count("creating") >= self.cfg.max_bots:
                 raise ApiError(409, "limit_reached", f"at most {self.cfg.max_bots} bots; delete one first")
@@ -328,6 +392,8 @@ class Manager:
         data = self._clean(spec, partial=True)
         with self.reg.lock:
             b = self._get(bid, "active")
+            merged = {**b, **data}
+            self.catalog.check(merged.get("modelProvider", ""), merged.get("modelId", ""), merged.get("reasoning", ""))
             b.update(data)
             if "systemPrompt" in data:
                 with open(os.path.join(self.profile_dir(bid), "SOUL.md"), "w") as f:
@@ -463,6 +529,7 @@ class Manager:
 def make_handler(mgr):
     cfg = mgr.cfg
     bot_re = re.compile(r"^/m/v1/bots/(b[0-9a-f]{10})(/restore|/chat/completions)?$")
+    open_paths = ("/m/v1/bots", "/m/v1/models")
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "bot-manager"
@@ -508,9 +575,13 @@ def make_handler(mgr):
                 path = urlsplit(self.path).path
                 if method == "GET" and path == "/m/v1/health":
                     return self._json(200, {"ok": True})
-                if path != "/m/v1/bots" and not bot_re.match(path):
+                if path not in open_paths and not bot_re.match(path):
                     raise ApiError(404, "not_found", "not found")
                 self._authed()
+                if path == "/m/v1/models":
+                    if method != "GET":
+                        raise ApiError(405, "method_not_allowed", "method not allowed")
+                    return self._json(200, mgr.catalog.data())
                 if path == "/m/v1/bots":
                     if method == "GET":
                         return self._json(200, mgr.list_bots())
@@ -546,7 +617,7 @@ def make_handler(mgr):
         # -- chat
         def _chat(self, bid, body):
             with mgr.reg.lock:
-                mgr._get(bid, "active")
+                bot = dict(mgr._get(bid, "active"))
             msgs = body.get("messages")
             if not isinstance(msgs, list) or not msgs:
                 raise ApiError(400, "bad_request", "messages is required")
@@ -560,6 +631,18 @@ def make_handler(mgr):
                 raise ApiError(400, "bad_request", "no user message")
             payload = {k: body[k] for k in CHAT_FIELDS if k in body}
             payload.update(messages=clean, model="hermes-agent")
+            # the model: what the request asks for, else the bot's own default, else Hermes' global one
+            if body.get("modelId") or body.get("modelProvider"):
+                provider, model, reasoning = (str(body.get("modelProvider") or ""), str(body.get("modelId") or ""),
+                                              str(body.get("reasoning") or ""))
+            else:
+                provider, model, reasoning = bot.get("modelProvider", ""), bot.get("modelId", ""), bot.get("reasoning", "")
+            mgr.catalog.check(provider, model, reasoning)
+            if provider and model:
+                payload.update(provider=provider, model=model)
+                opts = upstream_options(reasoning)
+                if opts:
+                    payload["model_options"] = opts
             key = mgr.key_of(bid)
             if not key:
                 raise ApiError(500, "no_key", "the bot has no key")

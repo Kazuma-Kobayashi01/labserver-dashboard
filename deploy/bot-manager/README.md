@@ -45,3 +45,17 @@ connect=tcp:127.0.0.1:8650`) and the `/m/v1/...` location in `deploy/nginx/bot`.
 `python3 -m unittest -v` here (fake Hermes/Docker backend). On the server, the real thing end to end:
 `incus exec hermes -- su - jackson-hao -c 'python3 /opt/bot-manager/integration-check.py'` (creates a bot, runs commands in
 its sandbox, proves the home network is unreachable from it, then trashes, restores and purges it).
+
+## Models and thinking levels
+
+`GET /m/v1/models` serves the catalog in `~/.hermes/bot-manager/catalog.json`: providers (DeepSeek, ChatGPT), their models and the
+thinking levels each accepts (`none low medium high xhigh max`). `probe_models.py` builds it from Hermes itself: the ChatGPT
+account's live model list and Hermes' own per-model level rules (read by a helper module that is put into Hermes' source tree for the
+moment of the call and removed again), the models DeepSeek lists for our key, and a one-request check per model through the
+restricted `labbot` profile. Re-run it when accounts change:
+`incus exec hermes -- su - jackson-hao -c 'python3 /opt/bot-manager/probe_models.py'`.
+
+A bot may carry a default (`modelProvider`, `modelId`, `reasoning` on create/PATCH); a chat request may override it with the same three
+fields. Both are checked against the catalog (400 `unknown_model` / `unknown_reasoning`) and sent to Hermes as an explicit `provider` +
+`model` + `model_options.reasoning` (Hermes ignores a bare model name; a rejected model still answers HTTP 200 with
+`finish_reason: "error"`). ChatGPT and DeepSeek logins live on the server only (`hermes auth`, `.env`).
