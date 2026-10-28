@@ -95,7 +95,7 @@ fun ConversationSection(
 
     Row(
         Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(50))
-            .background(if (conversations.none { it.id == currentId }) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+            .background(if (conversations.none { it.id == currentId }) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f) else Color.Transparent)
             .combinedClickable(onClick = onNew).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -178,7 +178,7 @@ private fun ConversationRow(
     Box {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(50))
-                .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                .background(if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f) else Color.Transparent)
                 .combinedClickable(onClick = onOpen, onLongClick = { menu = true })
                 .padding(start = 16.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,

@@ -414,6 +414,11 @@ class ChatController(
         return withContext(Dispatchers.IO) { index.search(query) }
     }
 
+    /** Debug builds only: shows a made-up conversation (not saved) so the screens can be looked at without a server. */
+    fun showDemo(messages: List<ChatMessage>) {
+        _ui.update { it.copy(messages = messages, conversationId = UUID.randomUUID().toString()) }
+    }
+
     /** Opens conversation [convId] of bot [botId] (from a notification). */
     fun show(botId: String, convId: String) {
         if (_ui.value.bot.id != botId) select(botId)

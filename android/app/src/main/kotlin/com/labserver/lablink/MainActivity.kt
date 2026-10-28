@@ -20,6 +20,8 @@ class MainActivity : ComponentActivity() {
         val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         val playground = debuggable && intent.getBooleanExtra("orb_playground", false)
         setContent { LabLinkTheme { if (playground) OrbPlayground() else AppRoot() } }
+        // debug builds can show a sample chat: am start ... --ez demo true
+        if (debuggable && intent.getBooleanExtra("demo", false)) labApp.chat.showDemo(DemoChat.messages())
         takeShared(intent)
         takeApproval(intent)
         // approvals reach the user as notifications when the app is away; Android 13+ asks for that once

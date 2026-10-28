@@ -149,6 +149,7 @@ fun LibraryScreen(onBack: () -> Unit, onSendAgain: (List<String>) -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
+            colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent, scrolledContainerColor = glassFill(strong = true)),
             title = {
                 if (selecting) Text(stringResource(R.string.library_selected, picked.size), fontWeight = FontWeight.Bold)
                 else Column {
@@ -196,7 +197,7 @@ fun LibraryPickerSheet(onAdd: (List<String>) -> Unit, onDismiss: () -> Unit) {
     val ui by app.chat.ui.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf(LibraryFilter.All) }
     var picked by remember { mutableStateOf(setOf<String>()) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    LabSheet(onDismiss) {
         Column(Modifier.padding(bottom = 16.dp)) {
             Text(stringResource(R.string.attach_library), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 24.dp, bottom = 8.dp))
             FilterRow(filter, { filter = it }, Modifier.padding(horizontal = 16.dp))

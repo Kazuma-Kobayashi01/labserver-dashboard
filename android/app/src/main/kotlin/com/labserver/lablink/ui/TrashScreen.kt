@@ -66,6 +66,7 @@ fun TrashScreen(connected: Boolean, onBack: () -> Unit, onMessage: (String) -> U
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
+            colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent, scrolledContainerColor = glassFill(strong = true)),
             title = { Text(stringResource(R.string.trash_title), fontWeight = FontWeight.Bold) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.web_back)) } },
             windowInsets = WindowInsets.statusBars,

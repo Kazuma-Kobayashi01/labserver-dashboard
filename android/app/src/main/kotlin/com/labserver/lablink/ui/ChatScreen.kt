@@ -1,5 +1,10 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
@@ -191,69 +196,55 @@ fun ChatScreen(
         wasStreaming = ui.streaming
     }
 
-    // every bot washes the screen in its own colour, very softly (as Pi does with its warm backgrounds)
-    Column(
-        Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(lerp(surface, botColor, tint), surface), endY = 1400f))
-            .imePadding(),
-    ) {
-        CenterAlignedTopAppBar(
-            navigationIcon = {
-                IconButton(onClick = onOpenDrawer) {
-                    Box {
-                        Icon(Icons.Rounded.Menu, contentDescription = null)
-                        // connection status, always in sight
-                        Box(
-                            Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-2).dp).size(9.dp)
-                                .background(MaterialTheme.colorScheme.surface, CircleShape).padding(1.5.dp)
-                                .background(tunnelDotColor(tunnel), CircleShape),
-                        )
+    // every bot lights the screen with its own colour: an aurora drifting behind floating glass controls
+    androidx.compose.runtime.CompositionLocalProvider(LocalAccent provides botColor) {
+    // the lights drift while there is something to look at (the empty hero, a reply coming in); a quiet chat draws no frames
+    AuroraBackground(botColor, Modifier.fillMaxSize(), alive = ui.messages.isEmpty() || ui.streaming) {
+    Column(Modifier.fillMaxSize().imePadding()) {
+        // the top bar floats: a round menu button, the bot capsule in the middle, the chat's actions on the right
+        Box(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp)) {
+            GlassIconButton(Icons.Rounded.Menu, null, onOpenDrawer, Modifier.align(Alignment.CenterStart), dot = tunnelDotColor(tunnel))
+            Row(
+                Modifier.align(Alignment.Center).widthIn(max = 230.dp).pressable { showPicker = true }
+                    .glass(RoundedCornerShape(50), elevation = 8.dp, glow = botColor)
+                    .padding(start = 6.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // the orb in the bar is alive too: it fidgets now and then while nothing is happening
+                val barOrb = rememberOrbController()
+                BotAvatar(32.dp, color = botColor, mood = liveMood, talk = (live?.content?.length ?: 0) / 16, alive = true, controller = barOrb)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f, fill = false)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(ui.bot.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        if (ui.bot.isSandbox) {
+                            Spacer(Modifier.width(5.dp))
+                            Box(Modifier.size(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiary))
+                        }
                     }
+                    // the open chat's title, or what the bot is (as ChatGPT shows the model under its name)
+                    Text(
+                        ui.conversation?.title?.takeIf { it.isNotBlank() } ?: stringResource(if (ui.bot.isSandbox) R.string.bot_sandbox_label else R.string.bot_new_chat),
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
                 }
-            },
-            title = {
-                // bot switcher, Gemini style: the name with a chevron
-                Row(
-                    Modifier.clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.85f))
-                        .clickable { showPicker = true }
-                        .padding(start = 8.dp, end = 10.dp, top = 5.dp, bottom = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // the orb in the bar is alive too: it fidgets now and then while nothing is happening
-                    val barOrb = rememberOrbController()
-                    BotAvatar(28.dp, color = botColor, mood = liveMood, talk = (live?.content?.length ?: 0) / 16, alive = true, controller = barOrb)
-                    Spacer(Modifier.width(8.dp))
-                    Text(ui.bot.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp))
-                    if (ui.bot.isSandbox) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            stringResource(R.string.bot_sandbox_label), style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.background(MaterialTheme.colorScheme.tertiaryContainer, RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 2.dp),
-                        )
-                    }
-                    Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.bots_title), modifier = Modifier.size(20.dp))
-                }
-            },
-            actions = {
+                Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.bots_title), modifier = Modifier.padding(start = 2.dp).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(Modifier.align(Alignment.CenterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // a new chat keeps this one in the history (the drawer), as in ChatGPT
-                IconButton(onClick = app.chat::newConversation, enabled = ui.messages.isNotEmpty()) {
-                    Icon(Icons.Rounded.EditNote, contentDescription = stringResource(R.string.bot_new_chat))
-                }
+                GlassIconButton(Icons.Rounded.EditNote, stringResource(R.string.bot_new_chat), app.chat::newConversation, enabled = ui.messages.isNotEmpty())
                 val open = ui.conversation
                 if (open != null) Box {
-                    IconButton(onClick = { chatMenu = true }) { Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.chat_more)) }
+                    GlassIconButton(Icons.Rounded.MoreVert, stringResource(R.string.chat_more), { chatMenu = true })
                     ConversationMenu(
                         chatMenu, open.pinned, onDismiss = { chatMenu = false },
                         onRename = { renaming = true }, onPin = { app.chat.setPinned(open.id, !open.pinned) },
                         onShare = { shareConversation(app, open, ui.bot.name) }, onDelete = { deleting = true },
                     )
                 }
-            },
-            windowInsets = WindowInsets.statusBars,
-            colors = androidx.compose.material3.TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
-        )
+            }
+        }
 
         AnimatedVisibility(tunnel !is TunnelState.On, enter = expandVertically(), exit = shrinkVertically()) {
             OfflineBanner(tunnel, onConnect)
@@ -302,12 +293,7 @@ fun ChatScreen(
                 jumpVisible, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
                 enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut(),
             ) {
-                Surface(
-                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
-                    shape = CircleShape, shadowElevation = 4.dp, tonalElevation = 3.dp,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.size(42.dp),
-                ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.ArrowDownward, contentDescription = null, modifier = Modifier.size(20.dp)) } }
+                GlassIconButton(Icons.Rounded.ArrowDownward, null, { scope.launch { listState.animateScrollToItem(0) } }, size = 42.dp)
             }
         }
 
@@ -334,6 +320,8 @@ fun ChatScreen(
             onAttach = { showAttach = true },
             onRemove = app.chat::removePending,
         )
+    }
+    }
     }
 
     if (showAttach) {
@@ -374,29 +362,44 @@ fun ChatScreen(
 
 @Composable
 private fun OfflineBanner(tunnel: TunnelState, onConnect: () -> Unit) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).glass(RoundedCornerShape(50), elevation = 4.dp)
+            .padding(start = 16.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(8.dp).background(tunnelDotColor(tunnel), CircleShape))
+        PulseDot(tunnelDotColor(tunnel), pulsing = tunnel is TunnelState.Connecting)
+        Text(
+            if (tunnel is TunnelState.Connecting) stringResource(R.string.link_connecting) else stringResource(R.string.bot_need_connect),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+        )
+        if (tunnel !is TunnelState.Connecting) {
             Text(
-                if (tunnel is TunnelState.Connecting) stringResource(R.string.link_connecting) else stringResource(R.string.bot_need_connect),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+                stringResource(R.string.link_connect), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.pressable(onConnect).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.primary).padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            if (tunnel is TunnelState.Connecting) {
-                CircularProgressIndicator(Modifier.padding(12.dp).size(18.dp), strokeWidth = 2.dp)
-            } else {
-                FilledTonalButton(onClick = onConnect, contentPadding = PaddingValues(horizontal = 16.dp)) { Text(stringResource(R.string.link_connect)) }
-            }
-        }
+        } else Spacer(Modifier.height(34.dp))
     }
 }
 
-/** Hero moment: the bot's orb on a soft glow of its colour, the greeting in big type, and four suggestion cards. */
+/** A status light; while something is under way it breathes. */
+@Composable
+private fun PulseDot(color: Color, pulsing: Boolean) {
+    val loop = androidx.compose.animation.core.rememberInfiniteTransition(label = "pulse")
+    val k by loop.animateFloat(
+        0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1200)), label = "pulse",
+    )
+    Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+        if (pulsing) Box(Modifier.size(8.dp + 10.dp * k).clip(CircleShape).background(color.copy(alpha = 0.35f * (1f - k))))
+        Box(Modifier.size(8.dp).clip(CircleShape).background(color))
+    }
+}
+
+/**
+ * Hero moment: the bot's orb inside soft rings that breathe out from it, the greeting painted in the bot's colours, and
+ * four glass suggestion tiles that rise in one after another.
+ */
 @Composable
 private fun EmptyState(bot: Bot, onSuggest: (String) -> Unit) {
     val botColor = Color(bot.color)
@@ -406,42 +409,62 @@ private fun EmptyState(bot: Bot, onSuggest: (String) -> Unit) {
         Icons.Rounded.Lightbulb to R.string.bot_suggest_3,
         Icons.Rounded.Event to R.string.bot_suggest_4,
     )
+    val loop = androidx.compose.animation.core.rememberInfiniteTransition(label = "halo")
+    val ring by loop.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(3600, easing = androidx.compose.animation.core.LinearEasing)), label = "ring")
+    var shown by remember(bot.id) { mutableStateOf(false) }
+    LaunchedEffect(bot.id) { shown = true }
     Column(
         Modifier.fillMaxSize().padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Box(Modifier.size(300.dp).background(Brush.radialGradient(listOf(botColor.copy(alpha = 0.22f), Color.Transparent))))
-            BotHero(132.dp, color = botColor)
+        Box(Modifier.size(250.dp), contentAlignment = Alignment.Center) {
+            // three rings leave the orb in turn and fade as they widen
+            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                for (k in 0 until 3) {
+                    val f = (ring + k / 3f) % 1f
+                    drawCircle(botColor.copy(alpha = 0.22f * (1f - f)), radius = size.minDimension * (0.28f + 0.22f * f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+                }
+                drawCircle(Brush.radialGradient(listOf(botColor.copy(alpha = 0.30f), Color.Transparent)), radius = size.minDimension * 0.5f)
+            }
+            BotHero(128.dp, color = botColor)
         }
-        Text(
+        GradientText(
             stringResource(R.string.bot_hello_named, cjkSpaced(bot.name)),
-            style = MaterialTheme.typography.headlineMedium,
+            listOf(MaterialTheme.colorScheme.onSurface, lerp(botColor, MaterialTheme.colorScheme.onSurface, 0.15f)),
+            MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 2.dp),
         )
         Text(
             bot.role.ifBlank { stringResource(R.string.bot_hello_sub) },
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 4.dp, bottom = 26.dp),
+            modifier = Modifier.padding(top = 6.dp, bottom = 28.dp),
         )
-        for (row in cards.chunked(2)) {
+        cards.chunked(2).forEachIndexed { r, row ->
             Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEach { (icon, res) ->
+                row.forEachIndexed { c, (icon, res) ->
                     val label = stringResource(res)
-                    Surface(
-                        onClick = { onSuggest(label) },
-                        color = lerp(MaterialTheme.colorScheme.surfaceContainerHigh, botColor, 0.10f),
-                        shape = RoundedCornerShape(26.dp),
-                        modifier = Modifier.weight(1f).heightIn(min = 92.dp),
+                    val n = r * 2 + c
+                    // each tile rises in a little after the one before
+                    val rise by androidx.compose.animation.core.animateFloatAsState(
+                        if (shown) 1f else 0f,
+                        androidx.compose.animation.core.tween(520, delayMillis = 90 * n, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        label = "tile",
+                    )
+                    Column(
+                        Modifier.weight(1f).heightIn(min = 96.dp)
+                            .graphicsLayer { alpha = rise; translationY = (1f - rise) * 40f }
+                            .pressable { onSuggest(label) }
+                            .glass(RoundedCornerShape(24.dp), elevation = 6.dp, glow = botColor)
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                            Icon(icon, contentDescription = null, tint = botColor, modifier = Modifier.size(22.dp))
-                            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.padding(top = 14.dp))
+                        Box(Modifier.size(34.dp).clip(CircleShape).background(botColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                            Icon(icon, contentDescription = null, tint = botColor, modifier = Modifier.size(19.dp))
                         }
+                        Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.padding(top = 12.dp))
                     }
                 }
             }
@@ -463,28 +486,32 @@ private fun UserBubble(m: ChatMessage, botColor: Color, onView: (Attachment) -> 
                 contentAlignment = Alignment.Center,
             ) { Text("!", color = Color.White, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.labelLarge) }
         }
-        Surface(
-            color = lerp(MaterialTheme.colorScheme.surfaceContainerHigh, botColor, 0.12f),
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 8.dp),
-            modifier = Modifier.widthIn(max = 300.dp).padding(start = 48.dp),
+        // your words in a vivid bubble of the bot's colour, its tail corner towards the edge
+        val shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomStart = 22.dp, bottomEnd = 6.dp)
+        val dark = isDark()
+        Box(
+            Modifier.padding(start = 48.dp).widthIn(max = 300.dp)
+                .shadow(8.dp, shape, ambientColor = botColor.copy(alpha = 0.35f), spotColor = botColor.copy(alpha = 0.35f))
+                .clip(shape).background(bubbleBrush(botColor, dark)),
         ) {
             Column(Modifier.padding(horizontal = if (m.attachments.isEmpty()) 16.dp else 10.dp, vertical = if (m.attachments.isEmpty()) 11.dp else 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 // pictures and files first, then the words (as in Claude and ChatGPT)
                 SentAttachments(m.attachments, onView)
                 if (m.content.isNotBlank()) SelectionContainer {
                     // the user's own text takes Markdown too (a pasted code block shows as one)
-                    MarkdownText(m.content, MaterialTheme.colorScheme.onSurface, Modifier.padding(horizontal = if (m.attachments.isEmpty()) 0.dp else 6.dp))
+                    MarkdownText(m.content, onAccent(botColor), Modifier.padding(horizontal = if (m.attachments.isEmpty()) 0.dp else 6.dp))
                 }
             }
         }
     }
-    Row {
+    val quiet = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    Row(Modifier.padding(top = 2.dp)) {
         if (m.content.isNotBlank()) IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Rounded.ContentCopy, contentDescription = stringResource(R.string.bot_copy), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(15.dp))
+            Icon(Icons.Rounded.ContentCopy, contentDescription = stringResource(R.string.bot_copy), tint = quiet, modifier = Modifier.size(15.dp))
         }
         // take it back: the message and what followed it go, and it returns to the input box to be changed and sent again
         IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.bot_retract), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+            Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.bot_retract), tint = quiet, modifier = Modifier.size(15.dp))
         }
     }
     }
@@ -502,21 +529,19 @@ private fun BotReply(
         Row(verticalAlignment = Alignment.CenterVertically) {
             BotAvatar(26.dp, color = Color(bot.color), mood = orbMood(thinking, working, m.content.isNotBlank()), talk = m.content.length / 16)
             Text(
-                bot.name, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                bot.name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
         Column(Modifier.padding(start = 34.dp, top = 6.dp)) {
             if (m.reasoning.isNotBlank()) {
-                Surface(
-                    onClick = { showThoughts = !showThoughts },
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.padding(bottom = 8.dp),
+                Box(
+                    Modifier.padding(bottom = 10.dp).pressable { showThoughts = !showThoughts }
+                        .glass(RoundedCornerShape(18.dp), elevation = 0.dp),
                 ) {
                     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Psychology, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Rounded.Psychology, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(bot.color))
                             Text(
                                 if (m.thinkingMs >= 1000) stringResource(R.string.bot_thought_for, (m.thinkingMs / 1000).toInt()) else stringResource(R.string.bot_thought),
                                 style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 6.dp),
@@ -556,18 +581,18 @@ private fun ErrorStrip(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: ()
         BotEvent.Error.Kind.Gone -> stringResource(R.string.bot_error_gone)
         BotEvent.Error.Kind.Other -> err.detail
     }
-    Surface(
-        color = MaterialTheme.colorScheme.errorContainer,
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).glass(RoundedCornerShape(20.dp), elevation = 4.dp, strong = true)
+            .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(Modifier.padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(text, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            when (err.kind) {
-                BotEvent.Error.Kind.NotConnected -> TextButton(onClick = onConnect) { Text(stringResource(R.string.link_connect)) }
-                BotEvent.Error.Kind.NoKey, BotEvent.Error.Kind.BadUrl, BotEvent.Error.Kind.Auth -> TextButton(onClick = onOpenSettings) { Text(stringResource(R.string.nav_settings)) }
-                else -> TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_ok)) }
-            }
+        Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.error))
+        Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.padding(start = 12.dp).size(20.dp))
+        Text(text, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(start = 10.dp, top = 10.dp, bottom = 10.dp))
+        when (err.kind) {
+            BotEvent.Error.Kind.NotConnected -> TextButton(onClick = onConnect) { Text(stringResource(R.string.link_connect)) }
+            BotEvent.Error.Kind.NoKey, BotEvent.Error.Kind.BadUrl, BotEvent.Error.Kind.Auth -> TextButton(onClick = onOpenSettings) { Text(stringResource(R.string.nav_settings)) }
+            else -> TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_ok)) }
         }
     }
 }
@@ -578,13 +603,10 @@ private fun Composer(
     hint: String, value: String, onValueChange: (String) -> Unit, streaming: Boolean, onSend: () -> Unit, onStop: () -> Unit, onVoice: () -> Unit,
     modelLabel: String, onModel: () -> Unit, pending: List<Pending>, canSend: Boolean, onAttach: () -> Unit, onRemove: (String) -> Unit,
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-        shape = RoundedCornerShape(30.dp),
-        tonalElevation = 2.dp,
-        shadowElevation = 3.dp,
-        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f), RoundedCornerShape(30.dp)),
+    val accent = LocalAccent.current
+    Box(
+        Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)
+            .glass(RoundedCornerShape(28.dp), elevation = 16.dp, strong = true, glow = accent),
     ) {
       Column {
         // what is attached to the message being written, as in Claude and opencode
@@ -618,21 +640,26 @@ private fun Composer(
                 animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
                 label = "send shape",
             )
-            Surface(
-                onClick = when { streaming -> onStop; listen -> onVoice; else -> onSend },
-                enabled = enabled,
-                shape = RoundedCornerShape(corner),
-                color = if (listen) MaterialTheme.colorScheme.surfaceContainerHigh else if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
-                contentColor = if (listen) MaterialTheme.colorScheme.onSurface else if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 6.dp).size(44.dp),
+            // the send button glows in the bot's colours; empty, it is a quiet microphone; streaming, a stop square
+            val hot = enabled && !listen
+            val shape = RoundedCornerShape(corner)
+            val dark = isDark()
+            Box(
+                Modifier.padding(bottom = 6.dp).size(44.dp).pressable { if (enabled) (when { streaming -> onStop; listen -> onVoice; else -> onSend })() }
+                    .then(if (hot) Modifier.shadow(10.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
+                    .clip(shape)
+                    .then(
+                        if (hot) Modifier.background(bubbleBrush(accent, dark))
+                        else Modifier.background(MaterialTheme.colorScheme.onSurface.copy(alpha = if (listen) 0.07f else 0.05f)),
+                    ),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    AnimatedContent(if (streaming) 0 else if (listen) 1 else 2, label = "send icon") { k ->
-                        when (k) {
-                            0 -> Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.onPrimary, RoundedCornerShape(3.dp)))
-                            1 -> Icon(Icons.Rounded.Mic, contentDescription = stringResource(R.string.voice_input))
-                            else -> Icon(Icons.Rounded.ArrowUpward, contentDescription = null)
-                        }
+                val ink = if (hot) onAccent(accent) else MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.8f else 0.3f)
+                AnimatedContent(if (streaming) 0 else if (listen) 1 else 2, label = "send icon") { k ->
+                    when (k) {
+                        0 -> Box(Modifier.size(14.dp).background(ink, RoundedCornerShape(3.dp)))
+                        1 -> Icon(Icons.Rounded.Mic, contentDescription = stringResource(R.string.voice_input), tint = ink)
+                        else -> Icon(Icons.Rounded.ArrowUpward, contentDescription = null, tint = ink)
                     }
                 }
             }
@@ -640,13 +667,13 @@ private fun Composer(
         // under the text: the attach button, and the model and thinking level of this chat as a small tag
         Row(Modifier.padding(start = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainer).pressable(onAttach),
+                Modifier.size(32.dp).pressable(onAttach).clip(CircleShape).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.attach_title), modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             Spacer(Modifier.width(8.dp))
             Row(
                 Modifier.pressable(onModel).clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 10.dp, vertical = 5.dp),
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)).padding(horizontal = 10.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(modelLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))

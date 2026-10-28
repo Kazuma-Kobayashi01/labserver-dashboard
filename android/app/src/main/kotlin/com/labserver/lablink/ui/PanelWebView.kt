@@ -66,6 +66,7 @@ fun PanelWebView(url: String, domain: String, tunnelHost: String, title: String,
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
+            colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent, scrolledContainerColor = glassFill(strong = true)),
             title = { Text(title) },
             navigationIcon = {
                 IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.web_close)) }

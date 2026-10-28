@@ -1,5 +1,6 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -70,14 +71,6 @@ fun tunnelTitle(state: TunnelState): String = when (state) {
 fun ConnectionCard(state: TunnelState, onToggle: () -> Unit, modifier: Modifier = Modifier, compact: Boolean = false, onShowLog: (() -> Unit)? = null) {
     // ticks every second so the "still waiting" hint can appear
     val now by produceState(System.currentTimeMillis()) { while (true) { delay(1000); value = System.currentTimeMillis() } }
-    val container by animateColorAsState(
-        when (state) {
-            is TunnelState.On -> MaterialTheme.colorScheme.primaryContainer
-            is TunnelState.Failed -> MaterialTheme.colorScheme.errorContainer
-            else -> MaterialTheme.colorScheme.surfaceContainerHighest
-        },
-        label = "connection card",
-    )
     val waitingLong = state is TunnelState.Connecting && now - state.since > 15_000
     val detail = when (state) {
         TunnelState.Off -> if (compact) "" else stringResource(R.string.link_in_app_only)
@@ -86,7 +79,20 @@ fun ConnectionCard(state: TunnelState, onToggle: () -> Unit, modifier: Modifier 
             if (compact) "" else "  ·  ↓ ${bytes(state.rx)}  ↑ ${bytes(state.tx)}"
         is TunnelState.Failed -> if (state.missingConfig) stringResource(R.string.link_missing) else state.message
     }
-    Surface(color = container, shape = MaterialTheme.shapes.extraLarge, modifier = modifier.fillMaxWidth()) {
+    // a glass card washed with the state's colour from its corner: violet when up, red when it failed
+    val wash by animateColorAsState(
+        when (state) {
+            is TunnelState.On -> MaterialTheme.colorScheme.primary
+            is TunnelState.Failed -> MaterialTheme.colorScheme.error
+            is TunnelState.Connecting -> MaterialTheme.colorScheme.tertiary
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        label = "connection wash",
+    )
+    androidx.compose.foundation.layout.Box(
+        modifier.fillMaxWidth().glass(RoundedCornerShape(28.dp), elevation = 8.dp, strong = true)
+            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(wash.copy(alpha = 0.16f), Color.Transparent))),
+    ) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = if (compact) 14.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(12.dp).background(tunnelDotColor(state), CircleShape))
@@ -100,7 +106,7 @@ fun ConnectionCard(state: TunnelState, onToggle: () -> Unit, modifier: Modifier 
                 }
                 Switch(checked = state.isUpOrBusy, onCheckedChange = { onToggle() })
             }
-            if (detail.isNotEmpty()) Text(detail, style = MaterialTheme.typography.bodyMedium, maxLines = if (compact) 1 else 4)
+            if (detail.isNotEmpty()) Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = if (compact) 1 else 4)
             if (onShowLog != null && (state is TunnelState.Failed || waitingLong)) {
                 TextButton(onClick = onShowLog) { Text(stringResource(R.string.link_diagnostics)) }
             }

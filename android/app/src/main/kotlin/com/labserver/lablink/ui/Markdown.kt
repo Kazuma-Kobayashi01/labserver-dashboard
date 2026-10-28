@@ -1,5 +1,7 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.compose.foundation.background
@@ -229,11 +231,14 @@ private fun TableBlock(t: Block.Table, color: Color, codeBg: Color, link: Color)
         val factor = if (total in 1f..maxWidth.value) maxWidth.value / total else 1f
         natural.map { (it * factor).dp }
     }
+    // a light card with a hairline grid; the header row slightly tinted
+    val line = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
     Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp)).horizontalScroll(rememberScrollState()),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(glassFill(strong = true))
+            .border(1.dp, line, RoundedCornerShape(16.dp)).horizontalScroll(rememberScrollState()),
     ) {
         for ((r, row) in (listOf(t.header) + t.rows).withIndex()) {
-            Row(Modifier.then(if (r == 0) Modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest) else Modifier)) {
+            Row(Modifier.then(if (r == 0) Modifier.background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)) else Modifier)) {
                 for (c in 0 until cols) {
                     InlineText(
                         row.getOrNull(c) ?: "", color, codeBg, link, MaterialTheme.typography.bodyMedium,
@@ -241,7 +246,7 @@ private fun TableBlock(t: Block.Table, color: Color, codeBg: Color, link: Color)
                     )
                 }
             }
-            if (r < t.rows.size) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            if (r < t.rows.size) HorizontalDivider(color = line)
         }
     }
     }
@@ -253,9 +258,10 @@ private fun CodeBlock(lang: String, code: String, color: Color) {
     val ctx = LocalContext.current
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { delay(1500); copied = false } }
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(18.dp))) {
-        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(lang.ifBlank { "code" }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+    // a dark editor panel in light and dark mode alike, as ChatGPT and Claude show code
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Code.panel)) {
+        Row(Modifier.fillMaxWidth().background(Code.bar).padding(start = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(lang.ifBlank { "code" }, style = MaterialTheme.typography.labelMedium, color = Code.muted, modifier = Modifier.weight(1f))
             IconButton(
                 onClick = {
                     ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("code", code))
@@ -265,24 +271,23 @@ private fun CodeBlock(lang: String, code: String, color: Color) {
             ) {
                 Icon(
                     if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy, contentDescription = null,
-                    tint = if (copied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (copied) Code.added else Code.muted,
                     modifier = Modifier.size(17.dp),
                 )
             }
         }
-        val colors = MaterialTheme.colorScheme
-        val shown = remember(code, lang, colors) {
+        val shown = remember(code, lang) {
             buildAnnotatedString {
                 append(code)
                 for (sp in tokenize(code, lang)) {
                     val style = when (sp.kind) {
-                        Tok.Keyword -> SpanStyle(color = colors.primary, fontWeight = FontWeight.SemiBold)
-                        Tok.Type -> SpanStyle(color = colors.secondary)
-                        Tok.Str -> SpanStyle(color = colors.tertiary)
-                        Tok.Number -> SpanStyle(color = colors.secondary)
-                        Tok.Comment -> SpanStyle(color = colors.onSurfaceVariant.copy(alpha = 0.75f), fontStyle = FontStyle.Italic)
-                        Tok.Added -> SpanStyle(color = Color(0xFF2FBF8F))
-                        Tok.Removed -> SpanStyle(color = colors.error)
+                        Tok.Keyword -> SpanStyle(color = Code.keyword, fontWeight = FontWeight.SemiBold)
+                        Tok.Type -> SpanStyle(color = Code.type)
+                        Tok.Str -> SpanStyle(color = Code.string)
+                        Tok.Number -> SpanStyle(color = Code.number)
+                        Tok.Comment -> SpanStyle(color = Code.comment, fontStyle = FontStyle.Italic)
+                        Tok.Added -> SpanStyle(color = Code.added)
+                        Tok.Removed -> SpanStyle(color = Code.removed)
                         Tok.Plain -> null
                     }
                     if (style != null) addStyle(style, sp.start, sp.end)
@@ -290,8 +295,23 @@ private fun CodeBlock(lang: String, code: String, color: Color) {
             }
         }
         Text(
-            shown, color = color, fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 19.sp,
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+            shown, color = Code.plain, fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 20.sp,
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 14.dp),
         )
     }
+}
+
+/** The code panel's colours (a soft night palette, the same in light and dark mode). */
+private object Code {
+    val panel = Color(0xFF1B1B26)
+    val bar = Color(0xFF242433)
+    val plain = Color(0xFFE4E4F0)
+    val muted = Color(0xFF9A9AB4)
+    val keyword = Color(0xFFC792EA)
+    val type = Color(0xFF82AAFF)
+    val string = Color(0xFFC3E88D)
+    val number = Color(0xFFF78C6C)
+    val comment = Color(0xFF6E7194)
+    val added = Color(0xFF4ED6A0)
+    val removed = Color(0xFFFF6B81)
 }

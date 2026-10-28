@@ -119,6 +119,7 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Column(Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection)) {
         LargeTopAppBar(
+            colors = androidx.compose.material3.TopAppBarDefaults.largeTopAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent, scrolledContainerColor = glassFill(strong = true)),
             title = { Text(stringResource(R.string.nav_settings), fontWeight = FontWeight.Bold) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.web_back)) } },
             scrollBehavior = scroll,
@@ -135,8 +136,9 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
 
             var auto by remember { mutableStateOf(prefs.autoConnect) }
             Card(
-                shape = MaterialTheme.shapes.extraLarge,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                shape = RoundedCornerShape(28.dp),
+                colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                modifier = Modifier.glass(RoundedCornerShape(28.dp), elevation = 6.dp, strong = true),
             ) {
                 Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -250,8 +252,9 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
     Card(
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+        modifier = Modifier.glass(RoundedCornerShape(28.dp), elevation = 6.dp, strong = true),
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)

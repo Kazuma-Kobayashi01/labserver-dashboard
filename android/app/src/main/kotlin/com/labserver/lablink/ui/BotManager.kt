@@ -1,5 +1,6 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.ui.draw.clip
 import com.labserver.lablink.labApp
 import androidx.compose.ui.platform.LocalContext
 import androidx.annotation.StringRes
@@ -93,32 +94,46 @@ fun BotPickerSheet(
     onNew: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    LabSheet(onDismiss) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(stringResource(R.string.bots_title) + "  ·  " + stringResource(R.string.bots_count, sandboxCount, limit), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
             bots.forEach { bot ->
                 val selected = bot.id == currentId
-                Surface(
-                    onClick = { onSelect(bot) },
-                    shape = MaterialTheme.shapes.large,
-                    color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                val c = Color(bot.color)
+                // the open bot in its own colour with a check; the others quiet
+                Row(
+                    Modifier.fillMaxWidth().pressable { onSelect(bot) }.clip(RoundedCornerShape(24.dp))
+                        .background(if (selected) c.copy(alpha = 0.12f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.035f))
+                        .border(1.dp, if (selected) c.copy(alpha = 0.55f) else Color.Transparent, RoundedCornerShape(24.dp))
+                        .padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        BotAvatar(46.dp, color = Color(bot.color))
-                        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                            Text(bot.name + if (bot.id in running) "  ●" else "", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (bot.role.isNotBlank()) {
-                                Text(bot.role, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
+                    BotAvatar(46.dp, color = c)
+                    Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(bot.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            if (bot.id in running) Box(Modifier.padding(start = 6.dp).size(7.dp).clip(CircleShape).background(Color(0xFF2FBF8F)))
                         }
-                        IconButton(onClick = { onEdit(bot) }) { Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.bots_edit)) }
+                        if (bot.role.isNotBlank()) {
+                            Text(bot.role, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
+                    if (selected) Box(Modifier.size(24.dp).clip(CircleShape).background(c), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Check, contentDescription = null, tint = onAccent(c), modifier = Modifier.size(16.dp))
+                    }
+                    IconButton(onClick = { onEdit(bot) }) { Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.bots_edit), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
                 }
             }
-            FilledTonalButton(onClick = onNew, modifier = Modifier.fillMaxWidth().height(52.dp).padding(top = 4.dp)) {
-                Icon(Icons.Rounded.Add, contentDescription = null)
+            val full = sandboxCount >= limit
+            Row(
+                Modifier.fillMaxWidth().padding(top = 6.dp).height(52.dp).pressable(onNew).clip(RoundedCornerShape(50))
+                    .background(if (full) androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)) else bubbleBrush(MaterialTheme.colorScheme.primary, isDark())),
+                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val ink = if (full) MaterialTheme.colorScheme.onSurfaceVariant else Color.White
+                Icon(Icons.Rounded.Add, contentDescription = null, tint = ink)
                 Spacer(Modifier.width(8.dp))
-                Text(if (sandboxCount >= limit) stringResource(R.string.bots_new_full, sandboxCount, limit) else stringResource(R.string.bots_new))
+                Text(if (full) stringResource(R.string.bots_new_full, sandboxCount, limit) else stringResource(R.string.bots_new), color = ink, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -152,7 +167,8 @@ fun BotEditorDialog(
     val presetStrings = presets.map { p -> Triple(p.color, stringResource(p.name) to stringResource(p.role), stringResource(p.prompt)) }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Surface(Modifier.fillMaxSize()) {
+        // the page glows in the colour being picked, so a change of colour shows at once
+        AuroraBackground(Color(color), Modifier.fillMaxSize()) {
             Column(Modifier.systemBarsPadding().imePadding()) {
                 TopAppBar(
                     title = { Text(stringResource(if (initial == null) R.string.bot_editor_new else R.string.bot_editor_edit)) },
@@ -164,6 +180,7 @@ fun BotEditorDialog(
                         }) { Text(stringResource(if (saving) R.string.bot_saving else R.string.common_save)) }
                     },
                     windowInsets = WindowInsets(0),
+                    colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 )
                 Column(
                     Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
@@ -242,7 +259,7 @@ fun BotEditorDialog(
                     )
 
                     // the bot's own default model and thinking level (the chat can still change them for itself)
-                    Surface(onClick = { showModels = true }, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+                    Surface(onClick = { showModels = true }, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Text(stringResource(R.string.bot_default_model), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
@@ -256,7 +273,7 @@ fun BotEditorDialog(
                     if (initial != null) {
                         val prefs = LocalContext.current.labApp.prefs
                         var markdown by remember { mutableStateOf(prefs.markdown(initial.id)) }
-                        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+                        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), modifier = Modifier.fillMaxWidth()) {
                             Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(stringResource(R.string.bot_markdown), style = MaterialTheme.typography.bodyLarge)

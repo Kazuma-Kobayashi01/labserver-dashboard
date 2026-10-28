@@ -1,5 +1,14 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.foundation.layout.size
@@ -17,6 +26,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -126,93 +136,97 @@ fun AppRoot() {
         drawerState = drawer,
         gesturesEnabled = !panelOpen || drawer.isOpen,
         drawerContent = {
-            // about four fifths of a phone, so the chat stays in view beside it (as in ChatGPT)
-            ModalDrawerSheet(Modifier.width(296.dp)) {
-                Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 16.dp)) {
-                    Row(Modifier.padding(start = 8.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        BotHero(44.dp, interactive = false)
+            // about four fifths of a phone, so the chat stays in view beside it (as in ChatGPT); the open bot's aurora shows
+            // through, the bots are cards, and the places (library, trash, home lab, settings) sit in a bar at the bottom
+            ModalDrawerSheet(
+                Modifier.width(300.dp),
+                drawerContainerColor = Color.Transparent,
+                drawerShape = RoundedCornerShape(topEnd = 30.dp, bottomEnd = 30.dp),
+            ) {
+                AuroraBackground(Color(chat.bot.color), Modifier.fillMaxSize().clip(RoundedCornerShape(topEnd = 30.dp, bottomEnd = 30.dp)), alive = false) {
+                Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                    Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        BotHero(40.dp, interactive = false)
                         Spacer(Modifier.width(10.dp))
-                        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
                     }
-                    ConnectionCard(tunnel, onToggle = toggleTunnel, compact = true)
+                    ConnectionPill(tunnel, onToggle = toggleTunnel, modifier = Modifier.padding(horizontal = 14.dp))
 
-                    Text(
-                        stringResource(R.string.bots_count, chat.sandboxCount, chat.limit),
-                        style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 8.dp),
-                    )
-                    // each bot with its own chats: the open bot unfolds into its history, a tap on another one switches to it
-                    chat.bots.forEach { bot ->
-                        val open = bot.id == chat.bot.id
-                        NavigationDrawerItem(
-                            icon = { BotAvatar(30.dp, color = Color(bot.color)) },
-                            label = { Text(bot.name, maxLines = 1, fontWeight = if (open) FontWeight.SemiBold else FontWeight.Normal) },
-                            selected = false,
-                            onClick = { if (open) go(Screen.Chat) else app.chat.select(bot.id) },
-                            badge = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (!open && chat.busy.isNotEmpty() && app.chat.isBusy(bot.id)) {
-                                        androidx.compose.foundation.layout.Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape))
-                                    }
-                                    IconButton(onClick = { saveError = null; editing = bot; scope.launch { drawer.close() } }) {
-                                        Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.bots_edit))
-                                    }
-                                    Icon(
-                                        if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp),
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(Modifier.padding(start = 8.dp, top = 12.dp, bottom = 6.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.bots_title), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                            Text("${chat.sandboxCount}/${chat.limit}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        // each bot with its own chats: the open bot unfolds into its history, a tap on another one switches to it
+                        chat.bots.forEach { bot ->
+                            val open = bot.id == chat.bot.id
+                            val c = Color(bot.color)
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                                    .pressable { if (open) go(Screen.Chat) else app.chat.select(bot.id) }
+                                    .then(if (open) Modifier.glass(RoundedCornerShape(22.dp), elevation = 6.dp, strong = true, glow = c) else Modifier.clip(RoundedCornerShape(22.dp)))
+                                    .padding(start = 10.dp, end = 2.dp, top = 8.dp, bottom = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                BotAvatar(36.dp, color = c)
+                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                    Text(bot.name, style = MaterialTheme.typography.titleSmall, fontWeight = if (open) FontWeight.ExtraBold else FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        bot.role.ifBlank { stringResource(if (bot.isSandbox) R.string.bot_sandbox_label else R.string.bot_hello_sub) },
+                                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     )
                                 }
-                            },
-                        )
-                        androidx.compose.animation.AnimatedVisibility(open) {
-                            Column(Modifier.padding(start = 20.dp, bottom = 8.dp)) {
-                                ConversationSection(
-                                    conversations = chat.conversations, currentId = chat.conversationId, busy = chat.busy, botName = chat.bot.name,
-                                    onNew = { app.chat.newConversation(); go(Screen.Chat) },
-                                    onOpen = { app.chat.openConversation(it); go(Screen.Chat) },
-                                )
+                                if (!open && chat.busy.isNotEmpty() && app.chat.isBusy(bot.id)) {
+                                    Box(Modifier.size(8.dp).clip(CircleShape).background(c))
+                                }
+                                IconButton(onClick = { saveError = null; editing = bot; scope.launch { drawer.close() } }, modifier = Modifier.size(38.dp)) {
+                                    Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.bots_edit), modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            androidx.compose.animation.AnimatedVisibility(open) {
+                                Column(Modifier.padding(start = 14.dp, top = 4.dp, bottom = 8.dp)) {
+                                    ConversationSection(
+                                        conversations = chat.conversations, currentId = chat.conversationId, busy = chat.busy, botName = chat.bot.name,
+                                        onNew = { app.chat.newConversation(); go(Screen.Chat) },
+                                        onOpen = { app.chat.openConversation(it); go(Screen.Chat) },
+                                    )
+                                }
                             }
                         }
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = 4.dp).clip(RoundedCornerShape(22.dp)).pressable { newBot(); scope.launch { drawer.close() } }
+                                .padding(start = 10.dp, top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier.size(36.dp).clip(CircleShape).border(1.5.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) { Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            Text(
+                                if (chat.full) stringResource(R.string.bots_new_full, chat.sandboxCount, chat.limit) else stringResource(R.string.bots_new),
+                                style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp),
+                            )
+                        }
                     }
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                        label = { Text(if (chat.full) stringResource(R.string.bots_new_full, chat.sandboxCount, chat.limit) else stringResource(R.string.bots_new)) },
-                        selected = false,
-                        onClick = { newBot(); scope.launch { drawer.close() } },
-                    )
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp, horizontal = 16.dp))
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Rounded.PhotoLibrary, contentDescription = null) },
-                        label = { Text(stringResource(R.string.nav_library)) },
-                        selected = screen == Screen.Library,
-                        onClick = { go(Screen.Library) },
-                    )
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
-                        label = { Text(stringResource(R.string.nav_trash) + if (chat.trash.isNotEmpty()) " (${chat.trash.size})" else "") },
-                        selected = screen == Screen.Trash,
-                        onClick = { go(Screen.Trash) },
-                    )
 
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp, horizontal = 16.dp))
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Rounded.Apps, contentDescription = null) },
-                        label = { Text(stringResource(R.string.nav_home_lab)) },
-                        selected = screen == Screen.HomeLab,
-                        onClick = { go(Screen.HomeLab) },
-                    )
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
-                        label = { Text(stringResource(R.string.nav_settings)) },
-                        selected = screen == Screen.Settings,
-                        onClick = { go(Screen.Settings) },
-                    )
-                    Spacer(Modifier.height(8.dp))
+                    // the places, one tap away at the bottom
+                    Row(
+                        Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp)
+                            .glass(RoundedCornerShape(24.dp), elevation = 8.dp, strong = true).padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        PlaceButton(Icons.Rounded.PhotoLibrary, stringResource(R.string.nav_library), screen == Screen.Library) { go(Screen.Library) }
+                        PlaceButton(Icons.Rounded.Delete, stringResource(R.string.nav_trash), screen == Screen.Trash, badge = chat.trash.size) { go(Screen.Trash) }
+                        PlaceButton(Icons.Rounded.Apps, stringResource(R.string.nav_home_lab), screen == Screen.HomeLab) { go(Screen.HomeLab) }
+                        PlaceButton(Icons.Rounded.Settings, stringResource(R.string.nav_settings), screen == Screen.Settings) { go(Screen.Settings) }
+                    }
+                }
                 }
             }
         },
     ) {
-        Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { inner ->
+        AuroraBackground(Color(chat.bot.color), Modifier.fillMaxSize(), alive = false) {
+        Scaffold(snackbarHost = { SnackbarHost(snackbar) }, containerColor = Color.Transparent) { inner ->
             val ld = androidx.compose.ui.platform.LocalLayoutDirection.current
             fun contentPadding(p: androidx.compose.foundation.layout.PaddingValues) =
                 androidx.compose.foundation.layout.PaddingValues(start = p.calculateStartPadding(ld), end = p.calculateEndPadding(ld), bottom = p.calculateBottomPadding())
@@ -263,6 +277,7 @@ fun AppRoot() {
             }
         }
     }
+    }
 
     if (creating) {
         BotEditorDialog(
@@ -300,5 +315,40 @@ fun AppRoot() {
             },
             onDismiss = { if (!saving) editing = null },
         )
+    }
+}
+
+/** One place in the drawer's bottom bar: an icon over a small label, lit when it is the screen on show. */
+@Composable
+private fun PlaceButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, selected: Boolean, badge: Int = 0, onClick: () -> Unit) {
+    val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        Modifier.clip(RoundedCornerShape(16.dp)).pressable(onClick).padding(horizontal = 6.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+            if (badge > 0) Box(
+                Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-5).dp).size(15.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error),
+                contentAlignment = Alignment.Center,
+            ) { Text(badge.coerceAtMost(9).toString(), style = MaterialTheme.typography.labelSmall, color = Color.White, fontWeight = FontWeight.Bold) }
+        }
+        Text(label, style = MaterialTheme.typography.labelSmall, color = tint, maxLines = 1, modifier = Modifier.padding(top = 3.dp))
+    }
+}
+
+/** The tunnel in the drawer: a glass pill with a status light, what it is doing, and its switch. */
+@Composable
+private fun ConnectionPill(state: TunnelState, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp), elevation = 4.dp, strong = true).padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(tunnelDotColor(state)))
+        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+            Text(stringResource(R.string.home_title), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tunnelTitle(state), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        }
+        androidx.compose.material3.Switch(checked = state.isUpOrBusy, onCheckedChange = { onToggle() })
     }
 }

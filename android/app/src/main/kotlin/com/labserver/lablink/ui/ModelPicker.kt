@@ -130,7 +130,7 @@ fun ModelPickerSheet(
     onDismiss: () -> Unit,
 ) {
     var listing by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    LabSheet(onDismiss) {
         AnimatedContent(
             listing,
             transitionSpec = {
@@ -158,7 +158,7 @@ private fun LevelCard(catalog: Catalog, current: ModelPick, defaultSubtitle: Str
     val haptic = LocalHapticFeedback.current
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.045f),
         shape = RoundedCornerShape(28.dp),
         modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 28.dp),
     ) {
