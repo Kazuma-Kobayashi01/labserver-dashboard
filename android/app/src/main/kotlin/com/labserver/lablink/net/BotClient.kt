@@ -33,9 +33,46 @@ sealed interface BotEvent {
 
     /** The agent started using a tool (web search...). */
     data object Tool : BotEvent
+
+    /** The bot wants to do something guarded (download, install, delete...) and waits for the user's answer. */
+    data class Approval(val request: ApprovalRequest) : BotEvent
     data object Done : BotEvent
     data class Error(val kind: Kind, val detail: String = "") : BotEvent {
         enum class Kind { NotConnected, NoKey, BadUrl, Auth, Unreachable, Gone, Other }
+    }
+}
+
+/**
+ * A guarded action waiting for the user: what kind it is, what exactly would run, and the answers Hermes accepts
+ * (once / session / always / deny). It is answered through the bot-manager with [runId] and [requestId].
+ */
+data class ApprovalRequest(
+    val runId: String,
+    val requestId: String,
+    /** download, install, delete, unknown (our policy), or danger (Hermes' own check of a risky command). */
+    val kind: String,
+    val command: String,
+    val choices: List<String>,
+    val botId: String = "",
+    val botName: String = "",
+    val at: Long = System.currentTimeMillis(),
+    /** How long Hermes waits before it refuses on its own. */
+    val timeoutMs: Long = 300_000,
+) {
+    companion object {
+        /** Reads Hermes' `approval.request` event; null when it is not one the app can answer. */
+        fun parse(data: String): ApprovalRequest? = try {
+            val o = JSONObject(data)
+            val run = o.optString("run_id")
+            val pattern = o.optString("pattern_key")
+            val kind = if (pattern.contains("lablink-")) pattern.substringAfter("lablink-") else "danger"
+            // our policy puts the command in the description; Hermes' own check names it in `command`
+            val command = if (pattern.startsWith("plugin_rule:")) o.optString("description") else o.optString("command").ifBlank { o.optString("description") }
+            val choices = o.optJSONArray("choices")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: listOf("once", "deny")
+            if (run.isBlank()) null else ApprovalRequest(run, o.optString("request_id"), kind, command, choices)
+        } catch (_: Exception) {
+            null
+        }
     }
 }
 
@@ -60,9 +97,12 @@ class BotClient(
         val sandbox = bot.isSandbox
         val url = if (sandbox) "${prefs.effectiveManagerUrl}/bots/${bot.id}/chat/completions" else prefs.effectiveBotUrl + "/chat/completions"
         val key = if (sandbox) prefs.managerKey else prefs.botKey
-        val systemPrompt = if (sandbox) "" else bot.systemPrompt
-        val port = tunnel.proxyPort.value
+        val markdown = prefs.markdown(bot.id)
+        // a sandbox bot's prompt lives on the server, which adds the Markdown hint itself when asked
+        val systemPrompt = if (sandbox) "" else listOf(bot.systemPrompt.trim(), if (markdown) MARKDOWN_HINT else "").filter { it.isNotEmpty() }.joinToString("\n\n")
         val viaProxy = !direct(url)
+        // right after the app opens the tunnel may still be coming up: wait for it rather than fail at once
+        val port = if (viaProxy) tunnel.awaitPort() else 0
         var call: Call? = null
         when {
             port == 0 && viaProxy -> {
@@ -80,7 +120,7 @@ class BotClient(
                     .readTimeout(120, TimeUnit.SECONDS) // the server sends a keepalive every 10 s
                     .build()
                 val req = try {
-                    request(history, url, key, systemPrompt, sandbox, pick)
+                    request(history, url, key, systemPrompt, sandbox, pick, markdown)
                 } catch (e: IllegalArgumentException) {
                     null // an address OkHttp cannot parse
                 }
@@ -103,8 +143,9 @@ class BotClient(
                                 }
                                 trySend(BotEvent.Error(kind, "HTTP ${resp.code}"))
                             } else {
-                                readEvents(resp.body.source()) { trySend(it) }
-                                trySend(BotEvent.Done)
+                                // a connection that closes before "[DONE]" is a dropped stream, not a finished reply
+                                if (readEvents(resp.body.source()) { trySend(it) }) trySend(BotEvent.Done)
+                                else trySend(BotEvent.Error(BotEvent.Error.Kind.Unreachable, "stream ended early"))
                             }
                         }
                     } catch (e: IOException) {
@@ -118,7 +159,7 @@ class BotClient(
         awaitClose { call?.cancel() }
     }
 
-    private fun request(history: List<ChatMessage>, url: String, key: String, systemPrompt: String, sandbox: Boolean, pick: ModelPick): Request {
+    private fun request(history: List<ChatMessage>, url: String, key: String, systemPrompt: String, sandbox: Boolean, pick: ModelPick, markdown: Boolean): Request {
         val messages = JSONArray()
         if (systemPrompt.isNotBlank()) messages.put(JSONObject().put("role", "system").put("content", systemPrompt.trim()))
         val sent = history.filter { it.content.isNotBlank() || it.attachments.isNotEmpty() }.takeLast(MAX_HISTORY)
@@ -129,6 +170,7 @@ class BotClient(
         }
         val body = JSONObject().put("model", "lab-bot").put("stream", true).put("messages", messages)
         applyPick(body, sandbox, pick)
+        if (sandbox && markdown) body.put("markdown", true)
         return Request.Builder()
             .url(url)
             .header("Authorization", "Bearer $key")
@@ -137,7 +179,8 @@ class BotClient(
             .build()
     }
 
-    private fun readEvents(source: okio.BufferedSource, emit: (BotEvent) -> Unit) {
+    /** Returns true when the server ended the stream properly. */
+    private fun readEvents(source: okio.BufferedSource, emit: (BotEvent) -> Unit): Boolean {
         var event = ""
         val data = StringBuilder()
         while (true) {
@@ -145,7 +188,7 @@ class BotClient(
             when {
                 line.isEmpty() -> {
                     if (data.isNotEmpty()) {
-                        if (dispatch(event, data.toString(), emit)) return
+                        if (dispatch(event, data.toString(), emit)) return true
                         data.setLength(0)
                     }
                     event = ""
@@ -158,6 +201,7 @@ class BotClient(
                 // ": keepalive" comment lines are ignored
             }
         }
+        return false
     }
 
     /** Returns true when the stream is finished. */
@@ -165,6 +209,10 @@ class BotClient(
         if (data == "[DONE]") return true
         if (event == "hermes.tool.progress") {
             emit(BotEvent.Tool)
+            return false
+        }
+        if (event == "approval.request") {
+            ApprovalRequest.parse(data)?.let { emit(BotEvent.Approval(it)) }
             return false
         }
         val delta = try {
@@ -179,6 +227,11 @@ class BotClient(
 
     companion object {
         private const val MAX_HISTORY = 24
+
+        /** The same words the bot-manager adds for sandbox bots (MARKDOWN_HINT in bot_manager.py). */
+        const val MARKDOWN_HINT = "Format replies in Markdown where it helps reading: headings for long answers, bullet or numbered lists for " +
+            "steps and options, tables for comparisons, **bold** for key terms, and fenced code blocks with a language " +
+            "tag for code, commands and config. Keep short conversational replies as plain sentences."
 
         /**
          * Puts the chosen model and thinking level into the request. The bot-manager takes them as plain fields and checks

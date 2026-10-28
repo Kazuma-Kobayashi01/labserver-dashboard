@@ -120,8 +120,25 @@ class OrbController(private val scope: CoroutineScope) {
         play(order[turn++ % order.size])
     }
 
-    fun play(fx: OrbFx) {
-        touched()
+    /**
+     * Something on its own, now and then, as a pet would: a wobble, a hop, a roll or a smile. It does not count as a touch,
+     * so an orb left alone still dozes off in the end.
+     */
+    fun fidget() {
+        when (kotlin.random.Random.nextInt(5)) {
+            0 -> play(OrbFx.Jelly, byUser = false)
+            1 -> play(OrbFx.Hop, byUser = false)
+            2 -> play(OrbFx.Roll, byUser = false)
+            else -> run("smile") {
+                smile.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = 300f))
+                kotlinx.coroutines.delay(900)
+                smile.animateTo(0f, spring(dampingRatio = 0.5f, stiffness = 180f))
+            }
+        }
+    }
+
+    fun play(fx: OrbFx, byUser: Boolean = true) {
+        if (byUser) touched()
         when (fx) {
             OrbFx.Roll -> run("roll") {
                 roll.snapTo(0f)
@@ -302,10 +319,19 @@ fun BotAvatar(
         }
     }
     LaunchedEffect(controller?.lastTouch) { controller?.let { if (it.sleep.value > 0f) it.wake() } }
+    // left alone and awake, it does something every so often, without being touched
+    LaunchedEffect(controller, mood) {
+        val c = controller ?: return@LaunchedEffect
+        if (mood != OrbMood.Idle) return@LaunchedEffect
+        while (true) {
+            delay(kotlin.random.Random.nextLong(5_000, 12_000))
+            if (c.sleep.value < 0.3f) c.fidget()
+        }
+    }
 
     val tau = (2 * PI).toFloat()
-    val a = phase * tau
     Canvas(modifier.size(size)) {
+        val a = phase * tau
         val c = controller
         val smile = c?.smile?.value ?: 0f
         val squash = c?.squash?.value ?: 0f
@@ -345,11 +371,11 @@ fun BotAvatar(
  */
 @Composable
 fun BotHero(size: Dp, modifier: Modifier = Modifier, color: Color = OrbIndigo, mood: OrbMood = OrbMood.Idle, interactive: Boolean = true) {
+    val controller = rememberOrbController()
     if (!interactive) {
-        BotAvatar(size, modifier, color, mood, alive = true)
+        BotAvatar(size, modifier, color, mood, alive = true, controller = controller)
         return
     }
-    val controller = rememberOrbController()
     BotAvatar(
         size,
         modifier.pointerInput(controller) {

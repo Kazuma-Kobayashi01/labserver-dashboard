@@ -14,12 +14,18 @@ data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),
     val time: Long = System.currentTimeMillis(),
     val attachments: List<Attachment> = emptyList(),
+    /** A user message that never reached the bot (no reply came back); shown with a red mark and sent again on a tap. */
+    val failed: Boolean = false,
+    /** How long the bot thought before it started answering (0 = it did not show its thinking). */
+    val thinkingMs: Long = 0,
 )
 
-/** One running conversation per bot, kept as a small JSON file in the app's private storage. */
-class ChatStore(dir: File, botId: String = DEFAULT_BOT_ID) {
-    // the default bot keeps the original file name, so chats from before multiple bots are not lost
-    private val file = File(dir, if (botId == DEFAULT_BOT_ID) "chat.json" else "chat-$botId.json")
+/** The messages of one conversation, kept as a small JSON file in the app's private storage. */
+class ChatStore(private val file: File) {
+    companion object {
+        /** Before conversations: the one chat each bot had (the default bot kept the original name). */
+        fun legacyFile(dir: File, botId: String) = File(dir, if (botId == DEFAULT_BOT_ID) "chat.json" else "chat-$botId.json")
+    }
 
     fun delete() {
         file.delete()
@@ -35,7 +41,10 @@ class ChatStore(dir: File, botId: String = DEFAULT_BOT_ID) {
 
     fun save(messages: List<ChatMessage>) {
         try {
-            file.writeText(json.encodeToString(messages))
+            // written aside and moved over, so a crash mid-write never leaves half a conversation
+            val tmp = File(file.parentFile, file.name + ".tmp")
+            tmp.writeText(json.encodeToString(messages))
+            if (!tmp.renameTo(file)) { file.writeText(tmp.readText()); tmp.delete() }
         } catch (_: Exception) {
         }
     }

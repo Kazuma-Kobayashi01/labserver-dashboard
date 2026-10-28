@@ -1,5 +1,7 @@
 package com.labserver.lablink.ui
 
+import com.labserver.lablink.labApp
+import androidx.compose.ui.platform.LocalContext
 import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -247,6 +249,21 @@ fun BotEditorDialog(
                                 if (pick.isDefault) stringResource(R.string.model_default_server) else pickLabel(catalog, pick),
                                 style = MaterialTheme.typography.bodyLarge,
                             )
+                        }
+                    }
+
+                    // replies formatted in Markdown (headings, lists, tables, code); on for every bot unless switched off here
+                    if (initial != null) {
+                        val prefs = LocalContext.current.labApp.prefs
+                        var markdown by remember { mutableStateOf(prefs.markdown(initial.id)) }
+                        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+                            Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.bot_markdown), style = MaterialTheme.typography.bodyLarge)
+                                    Text(stringResource(R.string.bot_markdown_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                androidx.compose.material3.Switch(checked = markdown, onCheckedChange = { markdown = it; prefs.setMarkdown(initial.id, it) })
+                            }
                         }
                     }
 

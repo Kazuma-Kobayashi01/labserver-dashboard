@@ -12,6 +12,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -40,6 +42,39 @@ class TunnelController(context: Context, private val prefs: Prefs) {
     private val _state = MutableStateFlow<TunnelState>(TunnelState.Off)
     val state: StateFlow<TunnelState> = _state
 
+    /** Set when the user switched the tunnel off: it then stays off until they switch it on (or the app starts again). */
+    @Volatile private var userStopped = false
+    private var retryJob: Job? = null
+    private var retries = 0
+
+    /** While the app is on screen a failed tunnel is retried; in the background it is left alone. */
+    var foreground: Boolean = false
+        set(v) {
+            field = v
+            if (!v) retryJob?.cancel()
+        }
+
+    /** Brings the tunnel up when the app opens or comes back, unless the user turned it off or turned the feature off. */
+    fun autoConnect() {
+        if (!prefs.autoConnect || userStopped) return
+        val s = _state.value
+        if (s is TunnelState.Off || (s is TunnelState.Failed && !s.missingConfig)) connect()
+    }
+
+    /**
+     * The proxy port, waiting up to [timeoutMs] for the tunnel when it is still coming up (or starting it, when it is down
+     * and the user has not switched it off). 0 when it does not come up.
+     */
+    suspend fun awaitPort(timeoutMs: Long = 20_000): Int {
+        _port.value.takeIf { it != 0 }?.let { return it }
+        if (!userStopped) {
+            val s = _state.value
+            if (s is TunnelState.Off || (s is TunnelState.Failed && !s.missingConfig)) connect()
+        }
+        if (_state.value !is TunnelState.Connecting && _state.value !is TunnelState.On) return 0
+        return withTimeoutOrNull(timeoutMs) { _port.first { it != 0 } } ?: 0
+    }
+
     /** 0 while the tunnel is down. */
     private val _port = MutableStateFlow(0)
     val proxyPort: StateFlow<Int> = _port
@@ -59,6 +94,8 @@ class TunnelController(context: Context, private val prefs: Prefs) {
     }
 
     fun connect() {
+        userStopped = false
+        retryJob?.cancel()
         if (job?.isActive == true) return
         job = scope.launch {
             val since = System.currentTimeMillis()
@@ -79,6 +116,7 @@ class TunnelController(context: Context, private val prefs: Prefs) {
                     val s = JSONObject(Labtunnel.stats())
                     val ago = s.optLong("handshakeAgo", -1)
                     _state.value = if (ago >= 0) {
+                        retries = 0
                         TunnelState.On(ago, s.optLong("rx"), s.optLong("tx"))
                     } else {
                         TunnelState.Connecting(since)
@@ -90,11 +128,32 @@ class TunnelController(context: Context, private val prefs: Prefs) {
             } catch (e: Exception) {
                 teardown()
                 _state.value = TunnelState.Failed(e.message ?: e.toString())
+                scheduleRetry()
+            }
+        }
+    }
+
+    /** A failure while the app is open is retried after 3, 6, 12 ... seconds (at most a minute apart). */
+    private fun scheduleRetry() {
+        if (!foreground || userStopped || !prefs.autoConnect) return
+        val wait = (3_000L shl retries.coerceAtMost(4)).coerceAtMost(60_000L)
+        retries++
+        retryJob?.cancel()
+        retryJob = scope.launch {
+            delay(wait)
+            if (foreground && !userStopped && _state.value is TunnelState.Failed) {
+                job = null
+                val keep = retries
+                connect()
+                retries = keep
             }
         }
     }
 
     fun disconnect() {
+        userStopped = true
+        retryJob?.cancel()
+        retries = 0
         job?.cancel()
         job = null
         teardown()

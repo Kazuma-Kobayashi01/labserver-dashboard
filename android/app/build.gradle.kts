@@ -14,8 +14,8 @@ android {
         applicationId = "com.labserver.lablink"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
         // labtunnel.aar (gomobile) ships these two ABIs: arm64 phones and the x86_64 emulator
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
@@ -35,7 +35,9 @@ android {
     }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -71,3 +73,6 @@ dependencies {
     testImplementation("org.json:json:20240303")   // the android.jar one is a stub on the JVM
     testImplementation(libs.kotlinx.coroutines.android)
 }
+
+// the Compose mapping file is only for deobfuscating stack traces; its helper artifact is not available offline
+composeCompiler { includeComposeMappingFile.set(false) }

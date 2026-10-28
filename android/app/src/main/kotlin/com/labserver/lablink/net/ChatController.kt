@@ -16,6 +16,9 @@ import com.labserver.lablink.data.ModelPick
 import com.labserver.lablink.data.BotStore
 import com.labserver.lablink.data.ChatMessage
 import com.labserver.lablink.data.ChatStore
+import com.labserver.lablink.data.Conversation
+import com.labserver.lablink.data.ConversationStore
+import com.labserver.lablink.data.titleFrom
 import com.labserver.lablink.data.DEFAULT_BOT_ID
 import com.labserver.lablink.data.Listing
 import com.labserver.lablink.data.ListingCache
@@ -27,6 +30,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,9 +55,19 @@ data class Pending(
 data class ChatUi(
     /** The default bot first, then the sandbox bots the server lists. */
     val bots: List<Bot>,
-    /** The bot being talked to; [messages] is its conversation. */
+    /** The bot being talked to; [messages] is the open conversation with it. */
     val bot: Bot,
     val messages: List<ChatMessage> = emptyList(),
+    /** The open conversation (a new one is not in [conversations] until its first message). */
+    val conversationId: String = UUID.randomUUID().toString(),
+    /** This bot's conversations: pinned first, then the most recent. */
+    val conversations: List<Conversation> = emptyList(),
+    /** Conversations of any bot whose reply is still coming in. */
+    val busy: Set<String> = emptySet(),
+    /** Guarded actions waiting for the user, by conversation (any bot); [approval] is the open conversation's. */
+    val waiting: Map<String, ApprovalRequest> = emptyMap(),
+    /** An answer to [approval] is on its way. */
+    val answering: Boolean = false,
     val streaming: Boolean = false,
     /** The agent is using a tool (searching the web...) before it answers. */
     val working: Boolean = false,
@@ -80,14 +94,17 @@ data class ChatUi(
     /** What the next message will use: the pick, else the bot's default (empty = the server's default). */
     val effectivePick: ModelPick get() = if (pick.isDefault) bot.pick else pick
 
+    val conversation: Conversation? get() = conversations.firstOrNull { it.id == conversationId }
+    val approval: ApprovalRequest? get() = waiting[conversationId]
+
     val sandboxCount: Int get() = bots.count { it.isSandbox }
     val full: Boolean get() = sandboxCount >= limit
 }
 
 /**
  * Owns the bots and their conversations so they survive screen changes. The default bot is local; the sandbox bots
- * (at most [Listing.limit]) are kept by the server's bot-manager and mirrored here. Each bot has its own chat file.
- * One reply streams at a time; conversations are saved after every reply.
+ * (at most [Listing.limit]) are kept by the server's bot-manager and mirrored here. Each bot has any number of conversations.
+ * Replies keep streaming when another conversation is opened; each is saved into its own conversation when it ends.
  */
 class ChatController(
     private val dir: File,
@@ -98,7 +115,15 @@ class ChatController(
     makeDefault: () -> Bot,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var job: Job? = null
+    /** Replies coming in, by conversation, and each conversation as it stands so far (shown again when it is reopened). */
+    private val jobs = HashMap<String, Job>()
+    private val live = HashMap<String, List<ChatMessage>>()
+
+    private companion object {
+        const val MAX_RETRIES = 2
+        const val RETRY_DELAY_MS = 1500L
+        const val UI_MS = 50L
+    }
 
     private val botStore = BotStore(dir, makeDefault)
     private val cache = ListingCache(dir)
@@ -107,18 +132,21 @@ class ChatController(
 
     /** The only local bot. Custom local bots from earlier versions are dropped (with their chats). */
     private var local: Bot = botStore.load().let { saved ->
-        saved.filter { it.id != DEFAULT_BOT_ID }.forEach { ChatStore(dir, it.id).delete() }
+        saved.filter { it.id != DEFAULT_BOT_ID }.forEach { ConversationStore(dir, it.id).deleteAll() }
         saved.firstOrNull { it.id == DEFAULT_BOT_ID } ?: makeDefault()
     }.also { botStore.save(listOf(it)) }
 
     private val initialListing = cache.load()
     private val initialBots = listOf(local) + initialListing.bots
     private val initialBot = initialBots.firstOrNull { it.id == prefs.currentBotId } ?: initialBots.first()
-    private var store = ChatStore(dir, initialBot.id)
+    private var convs = ConversationStore(dir, initialBot.id)
+    private val initialConvs = convs.load()
+    private val initialConv = initialConvs.firstOrNull { it.id == prefs.lastConversation(initialBot.id) }?.id ?: UUID.randomUUID().toString()
+    private var store = convs.messages(initialConv)
 
     private val _ui = MutableStateFlow(
         ChatUi(
-            initialBots, initialBot, store.load(),
+            initialBots, initialBot, store.load(), conversationId = initialConv, conversations = initialConvs,
             trash = initialListing.trash, limit = initialListing.limit, trashDays = initialListing.trashDays, running = initialListing.running,
             catalog = catalogCache.load(), pick = prefs.pick(initialBot.id), library = libraryStore.load(),
         ),
@@ -141,53 +169,147 @@ class ChatController(
     private fun post(text: String, attachments: List<Attachment>) {
         val t = text.trim()
         val cur = _ui.value
-        if ((t.isEmpty() && attachments.isEmpty()) || cur.streaming) { files.delete(attachments.filter { _ -> cur.streaming }); return }
+        if ((t.isEmpty() && attachments.isEmpty()) || cur.streaming) return
         val bot = cur.bot
+        val convId = cur.conversationId
         val chatFile = store
+        val index = convs
         val history = cur.messages + ChatMessage("user", t, attachments = attachments)
         if (attachments.isNotEmpty()) saveLibrary(mergeSent(cur.library, attachments, cur.bot.id, System.currentTimeMillis()))
         val reply = ChatMessage("assistant", "")
         // a sandbox bot keeps its own default on the server, so only an explicit pick is sent for it
         val sendPick = if (bot.isSandbox && cur.pick.isDefault) ModelPick() else cur.effectivePick
+        live[convId] = history + reply
+        // the conversation shows in the history from its first message on
+        touch(index, bot.id, convId, history)
+        prefs.setLastConversation(bot.id, convId)
         _ui.update { it.copy(messages = history + reply, streaming = true, working = false, error = null) }
 
-        job = scope.launch {
+        // started only once it is registered, so a reply that fails at once still finds and clears its own entry
+        val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             val content = StringBuilder()
             val reasoning = StringBuilder()
+            var failedSend = false
+            val started = android.os.SystemClock.elapsedRealtime()
+            var answeredAt = 0L
+            var lastUi = 0L
+            // tokens can arrive far faster than a screen refreshes; the list is redrawn at most every UI_MS
+            fun throttled(): Boolean {
+                val now = android.os.SystemClock.uptimeMillis()
+                if (now - lastUi < UI_MS) return false
+                lastUi = now
+                return true
+            }
             try {
-                client.stream(history, bot, sendPick).collect { ev ->
-                    when (ev) {
-                        is BotEvent.Content -> {
-                            content.append(ev.text)
-                            update(bot.id, reply.id, content, reasoning, working = false)
+                // a connection that drops before anything arrived (the phone changed network, the tunnel blinked) is retried
+                var attempt = 0
+                while (true) {
+                    var dropped: BotEvent.Error? = null
+                    client.stream(history, bot, sendPick).collect { ev ->
+                        when (ev) {
+                            is BotEvent.Content -> {
+                                if (answeredAt == 0L) answeredAt = android.os.SystemClock.elapsedRealtime()
+                                content.append(ev.text)
+                                if (throttled()) update(convId, reply.id, content, reasoning, working = false)
+                            }
+                            is BotEvent.Reasoning -> {
+                                reasoning.append(ev.text)
+                                if (throttled()) update(convId, reply.id, content, reasoning, working = null)
+                            }
+                            BotEvent.Tool -> onCurrent(convId) { it.copy(working = true) }
+                            is BotEvent.Approval -> {
+                                // flush what came so far, so the question sits under the latest words
+                                update(convId, reply.id, content, reasoning, working = true)
+                                _ui.update { it.copy(waiting = it.waiting + (convId to ev.request.copy(botId = bot.id, botName = bot.name))) }
+                            }
+                            BotEvent.Done -> Unit
+                            is BotEvent.Error ->
+                                if (ev.kind == BotEvent.Error.Kind.Unreachable && content.isEmpty() && reasoning.isEmpty() && attempt < MAX_RETRIES) dropped = ev
+                                else {
+                                    failedSend = true
+                                    onCurrent(convId) { it.copy(error = ev) }
+                                }
                         }
-                        is BotEvent.Reasoning -> {
-                            reasoning.append(ev.text)
-                            update(bot.id, reply.id, content, reasoning, working = null)
-                        }
-                        BotEvent.Tool -> onCurrent(bot.id) { it.copy(working = true) }
-                        BotEvent.Done -> Unit
-                        is BotEvent.Error -> onCurrent(bot.id) { it.copy(error = ev) }
                     }
+                    if (dropped == null) break
+                    attempt++
+                    kotlinx.coroutines.delay(RETRY_DELAY_MS * attempt)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                onCurrent(bot.id) { it.copy(error = BotEvent.Error(BotEvent.Error.Kind.Other, e.message ?: e.toString())) }
+                failedSend = true
+                onCurrent(convId) { it.copy(error = BotEvent.Error(BotEvent.Error.Kind.Other, e.message ?: e.toString())) }
             } finally {
                 withContext(NonCancellable) {
-                    // save into the chat this reply belongs to, even if the user switched bots meanwhile
-                    val finalReply = reply.copy(content = content.toString(), reasoning = reasoning.toString())
-                    val finalList = if (finalReply.content.isBlank() && finalReply.reasoning.isBlank()) history else history + finalReply
+                    jobs.remove(convId)
+                    live.remove(convId)
+                    _ui.update { it.copy(waiting = it.waiting - convId, answering = false) }
+                    // save into the conversation this reply belongs to, even if another one is open now
+                    val thought = if (reasoning.isEmpty()) 0L else (if (answeredAt > 0) answeredAt else android.os.SystemClock.elapsedRealtime()) - started
+                    val finalReply = reply.copy(content = content.toString(), reasoning = reasoning.toString(), thinkingMs = thought)
+                    val empty = finalReply.content.isBlank() && finalReply.reasoning.isBlank()
+                    // nothing came back after an error: the message did not get through
+                    val finalList = if (!empty) history + finalReply
+                    else if (failedSend) history.dropLast(1) + history.last().copy(failed = true)
+                    else history
                     chatFile.save(finalList)
-                    onCurrent(bot.id) { it.copy(messages = finalList, streaming = false, working = false) }
+                    touch(index, bot.id, convId, finalList)
+                    _ui.update { it.copy(busy = jobs.keys.toSet()) }
+                    onCurrent(convId) { it.copy(messages = finalList, streaming = false, working = false) }
                 }
+            }
+        }
+        jobs[convId] = job
+        _ui.update { it.copy(busy = jobs.keys.toSet()) }
+        job.start()
+    }
+
+    /** Stops the reply coming in for the open conversation. */
+    fun stop() {
+        jobs[_ui.value.conversationId]?.cancel()
+    }
+
+    /**
+     * Answers the open conversation's pending approval. On success the card goes and the reply carries on (or the bot is
+     * told no); when Hermes no longer waits (it timed out) the card goes too and says so.
+     */
+    fun answerApproval(choice: String) {
+        val cur = _ui.value
+        val convId = cur.conversationId
+        val req = cur.waiting[convId] ?: return
+        if (cur.answering) return
+        _ui.update { it.copy(answering = true) }
+        scope.launch {
+            val r = manager.answerApproval(prefs.profileOf(req.botId), req.runId, req.requestId, choice)
+            _ui.update { st ->
+                // a refusal other than "could not reach it" means Hermes no longer waits (it timed out, or the reply ended)
+                val retry = setOf(ManagerResult.Kind.NotConnected, ManagerResult.Kind.Unreachable, ManagerResult.Kind.Auth, ManagerResult.Kind.NoKey, ManagerResult.Kind.BadUrl)
+                val gone = r is ManagerResult.Ok || (r is ManagerResult.Fail && r.kind !in retry)
+                st.copy(
+                    answering = false,
+                    waiting = if (gone && st.waiting[convId] === req) st.waiting - convId else st.waiting,
+                    error = if (r is ManagerResult.Fail && st.conversationId == convId) BotEvent.Error(BotEvent.Error.Kind.Other, r.detail.ifBlank { r.kind.name }) else st.error,
+                )
             }
         }
     }
 
-    fun stop() {
-        job?.cancel()
+    /** Records [messages] as the latest state of [convId]: its time, and its title until the user names it. */
+    private fun touch(index: ConversationStore, botId: String, convId: String, messages: List<ChatMessage>) {
+        if (messages.isEmpty()) return
+        val old = index.load().firstOrNull { it.id == convId }
+        val c = (old ?: Conversation(id = convId)).let { if (it.renamed) it else it.copy(title = titleFrom(messages)) }
+            .copy(updated = System.currentTimeMillis())
+        val list = index.upsert(c)
+        _ui.update { if (it.bot.id == botId) it.copy(conversations = list) else it }
+    }
+
+    /** Saves the open conversation after the user changed it (retracted or regenerated). */
+    private fun saveOpen(messages: List<ChatMessage>) {
+        store.save(messages)
+        val cur = _ui.value
+        if (messages.isNotEmpty()) touch(convs, cur.bot.id, cur.conversationId, messages)
     }
 
     /** Throws the last reply away and asks again with the last thing the user said. */
@@ -203,22 +325,108 @@ class ChatController(
         post(last.content, last.attachments)
     }
 
-    fun clear() {
-        job?.cancel()
-        // only the words and the context go; what was sent stays in the library
-        store.save(emptyList())
-        _ui.update { it.copy(messages = emptyList(), streaming = false, working = false, error = null) }
+    /**
+     * Takes back the user message [id] to edit it: it and everything after it leave the chat (a reply still coming in is stopped),
+     * its pictures and files go back into the message being written, and [onText] gets its words for the input box.
+     */
+    fun retract(id: String, onText: (String) -> Unit) {
+        scope.launch {
+            jobs[_ui.value.conversationId]?.cancelAndJoin()   // its save must land before the chat is cut
+            val cur = _ui.value
+            val at = cur.messages.indexOfFirst { it.id == id && it.role == "user" }
+            if (at < 0) return@launch
+            val msg = cur.messages[at]
+            val kept = cur.messages.take(at)
+            saveOpen(kept)
+            val back = msg.attachments.filter { a -> cur.pending.none { it.id == a.id } }.map { Pending(it.id, it.name, Pending.State.Ready, it) }
+            _ui.update { it.copy(messages = kept, error = null, pending = back + it.pending) }
+            onText(msg.content)
+        }
+    }
+
+    /** Opens a fresh conversation with the current bot (the open one stays in the history). */
+    fun newConversation() {
+        val cur = _ui.value
+        if (cur.messages.isEmpty() && !cur.streaming) return
+        open(cur.bot, UUID.randomUUID().toString())
+    }
+
+    fun openConversation(id: String) {
+        val cur = _ui.value
+        if (id == cur.conversationId) return
+        if (cur.conversations.none { it.id == id }) return
+        open(cur.bot, id)
+    }
+
+    /** Shows conversation [convId] of [bot]; a reply still coming in elsewhere keeps going. */
+    private fun open(bot: Bot, convId: String) {
+        val cur = _ui.value
+        if (bot.id != cur.bot.id) {
+            dropPending()
+            prefs.currentBotId = bot.id
+            convs = ConversationStore(dir, bot.id)
+        }
+        store = convs.messages(convId)
+        val list = if (bot.id != cur.bot.id) convs.load() else cur.conversations
+        if (list.any { it.id == convId }) prefs.setLastConversation(bot.id, convId)
+        val streaming = convId in jobs
+        _ui.value = cur.copy(
+            bot = bot, conversationId = convId, conversations = list,
+            messages = live[convId] ?: store.load(), streaming = streaming, working = false, error = null,
+            pick = if (bot.id != cur.bot.id) prefs.pick(bot.id) else cur.pick,
+            pending = if (bot.id != cur.bot.id) emptyList() else cur.pending,
+        )
+    }
+
+    fun renameConversation(id: String, title: String) {
+        val t = title.trim()
+        val c = _ui.value.conversations.firstOrNull { it.id == id } ?: return
+        val list = convs.upsert(if (t.isEmpty()) c.copy(renamed = false, title = titleFrom(convs.messages(id).load())) else c.copy(title = t, renamed = true))
+        _ui.update { it.copy(conversations = list) }
+    }
+
+    fun setPinned(id: String, pinned: Boolean) {
+        val c = _ui.value.conversations.firstOrNull { it.id == id } ?: return
+        val list = convs.upsert(c.copy(pinned = pinned))
+        _ui.update { it.copy(conversations = list) }
+    }
+
+    /** Deletes a conversation for good (what was sent stays in the library). */
+    fun deleteConversation(id: String) {
+        jobs[id]?.cancel()
+        scope.launch {
+            jobs[id]?.join()
+            val list = convs.delete(id)
+            _ui.update { it.copy(conversations = list) }
+            if (_ui.value.conversationId == id) open(_ui.value.bot, list.firstOrNull()?.id ?: UUID.randomUUID().toString())
+        }
+    }
+
+    /** The messages of one of this bot's conversations (for sharing it). */
+    fun messagesOf(id: String): List<ChatMessage> = live[id] ?: if (id == _ui.value.conversationId) _ui.value.messages else convs.messages(id).load()
+
+    /** Whether a reply is coming in for any conversation of [botId]. */
+    fun isBusy(botId: String): Boolean = jobs.isNotEmpty() && ConversationStore(dir, botId).load().any { it.id in jobs }
+
+    /** The ids of this bot's conversations that mention [query] anywhere. */
+    suspend fun search(query: String): Set<String> {
+        val index = convs
+        return withContext(Dispatchers.IO) { index.search(query) }
+    }
+
+    /** Opens conversation [convId] of bot [botId] (from a notification). */
+    fun show(botId: String, convId: String) {
+        if (_ui.value.bot.id != botId) select(botId)
+        openConversation(convId)
     }
 
     fun select(id: String) {
         val cur = _ui.value
         if (id == cur.bot.id) return
         val bot = cur.bots.firstOrNull { it.id == id } ?: return
-        job?.cancel()
-        dropPending()
-        prefs.currentBotId = id
-        store = ChatStore(dir, id)
-        _ui.value = cur.copy(bot = bot, messages = store.load(), streaming = false, working = false, error = null, pick = prefs.pick(id), pending = emptyList())
+        val target = ConversationStore(dir, id)
+        val last = prefs.lastConversation(id).takeIf { l -> target.load().any { it.id == l } }
+        open(bot, last ?: UUID.randomUUID().toString())
     }
 
     /** Edits the default (local) bot. Sandbox bots go through [updateBot]. */
@@ -274,8 +482,8 @@ class ChatController(
         val taken = _ui.value.pending.count { it.attachment?.kind == AttachmentKind.Image }
         if (a.kind == AttachmentKind.Image && taken >= Limits.MAX_IMAGES) throw AttachException(AttachProblem.TooManyImages)
         if (a.kind != AttachmentKind.File) return a
-        if (!bot.isSandbox) throw AttachException(AttachProblem.NoSandbox)
-        return when (val r = manager.upload(bot.id, a.name, files.file(a))) {
+        // every bot works in a sandbox now: a file goes into its attachments folder there
+        return when (val r = manager.upload(prefs.profileOf(bot.id), a.name, files.file(a))) {
             is ManagerResult.Ok -> a.copy(remotePath = r.value)
             is ManagerResult.Fail -> throw AttachException(if (r.kind == ManagerResult.Kind.Invalid && r.detail.contains("MB")) AttachProblem.TooLarge else AttachProblem.UploadFailed, r.detail)
         }
@@ -320,7 +528,7 @@ class ChatController(
                 val result = try {
                     // the sandbox copy is reused when it is this bot's; another bot gets its own upload
                     val sameBot = item.botId == bot.id && a.remotePath.isNotEmpty()
-                    val ready = withContext(Dispatchers.IO) { if (a.kind == AttachmentKind.File && sameBot && bot.isSandbox) a else prepare(bot, a.copy(remotePath = "")) }
+                    val ready = withContext(Dispatchers.IO) { if (a.kind == AttachmentKind.File && sameBot) a else prepare(bot, a.copy(remotePath = "")) }
                     Pending(id, a.name, Pending.State.Ready, ready)
                 } catch (e: AttachException) {
                     Pending(id, a.name, Pending.State.Failed, problem = e.problem)
@@ -336,7 +544,7 @@ class ChatController(
     private fun sweepOrphans() {
         val used = HashSet<String>()
         _ui.value.library.forEach { used += it.attachment.local }
-        dir.listFiles { f -> f.name.startsWith("chat") && f.name.endsWith(".json") }?.forEach { f ->
+        dir.listFiles { f -> (f.name.startsWith("chat") || f.name.startsWith("conv-")) && f.name.endsWith(".json") }?.forEach { f ->
             runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<List<ChatMessage>>(f.readText()) }
                 .getOrNull()?.forEach { m -> m.attachments.forEach { used += it.local } }
         }
@@ -379,6 +587,7 @@ class ChatController(
     suspend fun trashBot(id: String): ManagerResult<Unit> {
         val r = manager.trash(id)
         if (r is ManagerResult.Ok) {
+            ConversationStore(dir, id).load().forEach { c -> jobs[c.id]?.cancel() }
             if (_ui.value.bot.id == id) select(DEFAULT_BOT_ID)
             refresh()
         }
@@ -394,7 +603,7 @@ class ChatController(
     suspend fun purgeBot(id: String): ManagerResult<Unit> {
         val r = manager.purge(id)
         if (r is ManagerResult.Ok) {
-            ChatStore(dir, id).delete()   // what was sent stays in the library
+            ConversationStore(dir, id).deleteAll()   // what was sent stays in the library
             refresh()
         }
         return r
@@ -404,9 +613,9 @@ class ChatController(
         cache.save(l)
         val known = (l.bots.map { it.id } + l.trash.map { it.bot.id }).toSet()
         // bots that are gone on the server (removed after their time in the trash) leave no conversation behind
-        dir.listFiles { f -> f.name.startsWith("chat-") && f.name.endsWith(".json") }?.forEach { f ->
-            val id = f.name.removePrefix("chat-").removeSuffix(".json")
-            if (isSandboxId(id) && id !in known) f.delete()
+        dir.listFiles { f -> (f.name.startsWith("chat-") || f.name.startsWith("convs-")) && f.name.endsWith(".json") }?.forEach { f ->
+            val id = f.name.removePrefix("chat-").removePrefix("convs-").removeSuffix(".json")
+            if (isSandboxId(id) && id !in known) ConversationStore(dir, id).deleteAll()
         }
         val bots = listOf(local) + l.bots
         val current = _ui.value.bot
@@ -419,13 +628,14 @@ class ChatController(
         if (bots.none { it.id == current.id }) select(DEFAULT_BOT_ID)
     }
 
-    /** Applies [change] only while [botId] is still the bot on screen. */
-    private fun onCurrent(botId: String, change: (ChatUi) -> ChatUi) {
-        _ui.update { if (it.bot.id == botId) change(it) else it }
+    /** Applies [change] only while conversation [convId] is the one on screen. */
+    private fun onCurrent(convId: String, change: (ChatUi) -> ChatUi) {
+        _ui.update { if (it.conversationId == convId) change(it) else it }
     }
 
-    private fun update(botId: String, id: String, content: CharSequence, reasoning: CharSequence, working: Boolean?) {
-        onCurrent(botId) { st ->
+    private fun update(convId: String, id: String, content: CharSequence, reasoning: CharSequence, working: Boolean?) {
+        live[convId]?.let { msgs -> live[convId] = msgs.map { if (it.id == id) it.copy(content = content.toString(), reasoning = reasoning.toString()) else it } }
+        onCurrent(convId) { st ->
             st.copy(
                 messages = st.messages.map { if (it.id == id) it.copy(content = content.toString(), reasoning = reasoning.toString()) else it },
                 working = working ?: st.working,

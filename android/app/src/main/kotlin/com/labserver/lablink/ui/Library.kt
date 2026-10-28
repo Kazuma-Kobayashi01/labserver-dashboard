@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -166,7 +167,7 @@ fun LibraryScreen(onBack: () -> Unit, onSendAgain: (List<String>) -> Unit) {
                     IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.library_delete), tint = MaterialTheme.colorScheme.error) }
                 }
             },
-            windowInsets = WindowInsets(0),
+            windowInsets = WindowInsets.statusBars,
         )
         FilterRow(filter, { filter = it; picked = emptySet() }, Modifier.padding(horizontal = 16.dp))
         LibraryGrid(

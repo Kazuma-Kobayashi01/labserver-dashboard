@@ -3,6 +3,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".LabLinkApp"
@@ -36,6 +40,12 @@
                 <data android:mimeType="application/*" />
             </intent-filter>
         </activity>
+
+        <!-- keeps a streaming reply alive while the app is in the background -->
+        <service
+            android:name=".net.ReplyService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- hands the camera app a place to write the picture -->
         <provider

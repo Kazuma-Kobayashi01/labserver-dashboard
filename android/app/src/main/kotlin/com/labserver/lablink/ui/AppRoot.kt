@@ -1,5 +1,9 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.animation.AnimatedContent
@@ -38,6 +42,8 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -120,7 +126,8 @@ fun AppRoot() {
         drawerState = drawer,
         gesturesEnabled = !panelOpen || drawer.isOpen,
         drawerContent = {
-            ModalDrawerSheet {
+            // about four fifths of a phone, so the chat stays in view beside it (as in ChatGPT)
+            ModalDrawerSheet(Modifier.width(296.dp)) {
                 Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 16.dp)) {
                     Row(Modifier.padding(start = 8.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         BotHero(44.dp, interactive = false)
@@ -134,18 +141,38 @@ fun AppRoot() {
                         style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 8.dp),
                     )
+                    // each bot with its own chats: the open bot unfolds into its history, a tap on another one switches to it
                     chat.bots.forEach { bot ->
+                        val open = bot.id == chat.bot.id
                         NavigationDrawerItem(
                             icon = { BotAvatar(30.dp, color = Color(bot.color)) },
-                            label = { Text(bot.name, maxLines = 1) },
-                            selected = screen == Screen.Chat && bot.id == chat.bot.id,
-                            onClick = { app.chat.select(bot.id); go(Screen.Chat) },
+                            label = { Text(bot.name, maxLines = 1, fontWeight = if (open) FontWeight.SemiBold else FontWeight.Normal) },
+                            selected = false,
+                            onClick = { if (open) go(Screen.Chat) else app.chat.select(bot.id) },
                             badge = {
-                                IconButton(onClick = { saveError = null; editing = bot; scope.launch { drawer.close() } }) {
-                                    Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.bots_edit))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (!open && chat.busy.isNotEmpty() && app.chat.isBusy(bot.id)) {
+                                        androidx.compose.foundation.layout.Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape))
+                                    }
+                                    IconButton(onClick = { saveError = null; editing = bot; scope.launch { drawer.close() } }) {
+                                        Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.bots_edit))
+                                    }
+                                    Icon(
+                                        if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp),
+                                    )
                                 }
                             },
                         )
+                        androidx.compose.animation.AnimatedVisibility(open) {
+                            Column(Modifier.padding(start = 20.dp, bottom = 8.dp)) {
+                                ConversationSection(
+                                    conversations = chat.conversations, currentId = chat.conversationId, busy = chat.busy, botName = chat.bot.name,
+                                    onNew = { app.chat.newConversation(); go(Screen.Chat) },
+                                    onOpen = { app.chat.openConversation(it); go(Screen.Chat) },
+                                )
+                            }
+                        }
                     }
                     NavigationDrawerItem(
                         icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
@@ -153,6 +180,7 @@ fun AppRoot() {
                         selected = false,
                         onClick = { newBot(); scope.launch { drawer.close() } },
                     )
+                    HorizontalDivider(Modifier.padding(vertical = 12.dp, horizontal = 16.dp))
                     NavigationDrawerItem(
                         icon = { Icon(Icons.Rounded.PhotoLibrary, contentDescription = null) },
                         label = { Text(stringResource(R.string.nav_library)) },
@@ -185,10 +213,14 @@ fun AppRoot() {
         },
     ) {
         Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { inner ->
+            val ld = androidx.compose.ui.platform.LocalLayoutDirection.current
+            fun contentPadding(p: androidx.compose.foundation.layout.PaddingValues) =
+                androidx.compose.foundation.layout.PaddingValues(start = p.calculateStartPadding(ld), end = p.calculateEndPadding(ld), bottom = p.calculateBottomPadding())
             // screens ease into each other: a page opening slides in from the right over the chat and the chat settles back
             AnimatedContent(
                 targetState = screen,
-                modifier = Modifier.padding(inner).consumeWindowInsets(inner),
+                // the top is left to each screen's own bar, so its colour runs up behind the status bar
+                modifier = Modifier.padding(contentPadding(inner)).consumeWindowInsets(contentPadding(inner)),
                 transitionSpec = {
                     val opening = targetState != Screen.Chat
                     val spring = spring<androidx.compose.ui.unit.IntOffset>(dampingRatio = 0.9f, stiffness = 380f)

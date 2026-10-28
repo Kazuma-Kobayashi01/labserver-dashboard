@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -121,7 +122,7 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
             title = { Text(stringResource(R.string.nav_settings), fontWeight = FontWeight.Bold) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.web_back)) } },
             scrollBehavior = scroll,
-            windowInsets = WindowInsets(0),
+            windowInsets = WindowInsets.statusBars,
         )
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
@@ -131,6 +132,20 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
                 if (state.isUpOrBusy) app.tunnel.disconnect()
                 else { if (save()) app.tunnel.connect() }
             }, onShowLog = { showLog = true })
+
+            var auto by remember { mutableStateOf(prefs.autoConnect) }
+            Card(
+                shape = MaterialTheme.shapes.extraLarge,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            ) {
+                Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.link_auto), style = MaterialTheme.typography.titleSmall)
+                        Text(stringResource(R.string.link_auto_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    androidx.compose.material3.Switch(checked = auto, onCheckedChange = { auto = it; prefs.autoConnect = it })
+                }
+            }
 
             Section(stringResource(R.string.link_device)) {
                 Text(stringResource(R.string.link_device_key), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

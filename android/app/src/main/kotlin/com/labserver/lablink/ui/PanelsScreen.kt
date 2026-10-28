@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -104,7 +105,7 @@ fun HomeLabScreen(tunnel: TunnelState, onBack: () -> Unit, onToggle: () -> Unit,
             title = { Text(stringResource(R.string.nav_home_lab), fontWeight = FontWeight.Bold) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.web_back)) } },
             scrollBehavior = scroll,
-            windowInsets = WindowInsets(0),
+            windowInsets = WindowInsets.statusBars,
         )
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),

@@ -82,10 +82,29 @@ class Prefs(context: Context) {
         sp.edit().apply { if (p.isDefault) remove("pick.$botId") else putString("pick.$botId", "${p.provider}|${p.model}|${p.reasoning}") }.apply()
     }
 
+    /** Bring the tunnel up as soon as the app opens. */
+    var autoConnect: Boolean
+        get() = sp.getBoolean("autoConnect", true)
+        set(v) = sp.edit().putBoolean("autoConnect", v).apply()
+
+    /** Whether [botId] is asked to format its replies in Markdown (on unless switched off). */
+    fun markdown(botId: String): Boolean = sp.getBoolean("markdown.$botId", true)
+    fun setMarkdown(botId: String, on: Boolean) = sp.edit().putBoolean("markdown.$botId", on).apply()
+
+    /** The conversation last open with [botId] (empty = none). */
+    fun lastConversation(botId: String): String = sp.getString("conv.$botId", "") ?: ""
+    fun setLastConversation(botId: String, id: String) = sp.edit().putString("conv.$botId", id).apply()
+
     /** The bot shown in the Lab bot tab. */
     var currentBotId: String
         get() = sp.getString("currentBotId", DEFAULT_BOT_ID) ?: DEFAULT_BOT_ID
         set(v) = sp.edit().putString("currentBotId", v).apply()
+
+    /** The Hermes profile of the default bot, from its address (…/p/<profile>/v1). */
+    val defaultProfile: String get() = Regex("/p/([^/]+)/").find(effectiveBotUrl)?.groupValues?.get(1) ?: "labbot"
+
+    /** The name the bot-manager knows [botId] by: a sandbox bot's own id, else the default bot's profile. */
+    fun profileOf(botId: String): String = if (isSandboxId(botId)) botId else defaultProfile
 
     /** The configured address, or the default when it is empty or not an http(s) URL. */
     val effectiveBotUrl: String get() = botBaseUrl.takeIf { isHttpUrl(it) } ?: "http://bot.$domain/p/labbot/v1"

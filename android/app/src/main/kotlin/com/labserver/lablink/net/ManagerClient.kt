@@ -84,6 +84,10 @@ class ManagerClient(private val ep: ManagerEndpoint) {
         }
     }
 
+    /** Answers a guarded action the bot of [profile] is waiting on: once, session, always or deny. */
+    suspend fun answerApproval(profile: String, runId: String, requestId: String, choice: String): ManagerResult<Unit> =
+        call("POST", "/bots/$profile/runs/$runId/approval", JSONObject().put("choice", choice).apply { if (requestId.isNotEmpty()) put("request_id", requestId) }) { }
+
     suspend fun purge(id: String): ManagerResult<Unit> = call("DELETE", "/bots/$id?purge=1", null) { }
 
     private fun spec(b: Bot) = JSONObject().put("name", b.name).put("role", b.role).put("systemPrompt", b.systemPrompt)

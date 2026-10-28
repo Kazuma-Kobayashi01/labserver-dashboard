@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,6 +52,11 @@ import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.StopCircle
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -102,12 +109,16 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Edit
 import com.labserver.lablink.data.Attachment
 import com.labserver.lablink.data.Limits
 import com.labserver.lablink.net.Pending
 import com.labserver.lablink.data.isSandbox
 import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.ChatMessage
+import com.labserver.lablink.data.ReplyPart
+import com.labserver.lablink.data.replyText
+import com.labserver.lablink.data.splitReply
 import com.labserver.lablink.labApp
 import com.labserver.lablink.net.BotEvent
 import com.labserver.lablink.tunnel.TunnelState
@@ -125,7 +136,10 @@ fun ChatScreen(
     val app = LocalContext.current.labApp
     val ui by app.chat.ui.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
-    var confirmClear by remember { mutableStateOf(false) }
+    var chatMenu by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    val speaking by app.speaker.speaking.collectAsStateWithLifecycle()
     var showPicker by remember { mutableStateOf(false) }
     var showModel by remember { mutableStateOf(false) }
     var showAttach by remember { mutableStateOf(false) }
@@ -137,6 +151,19 @@ fun ChatScreen(
     var cameraFile by remember { mutableStateOf<Pair<java.io.File, android.net.Uri>?>(null) }
     val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         cameraFile?.let { (f, uri) -> if (ok) app.chat.attach(listOf(uri)) else f.delete() }
+    }
+    // speech to text through the phone's own recogniser; what it heard goes into the input box
+    val voiceUnavailable = stringResource(R.string.voice_unavailable)
+    val ttsUnavailable = stringResource(R.string.tts_unavailable)
+    val listen = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val heard = r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
+        if (heard.isNotBlank()) input = if (input.isBlank()) heard else input.trimEnd() + " " + heard
+    }
+    val voice = {
+        val i = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault().toLanguageTag())
+        try { listen.launch(i) } catch (_: android.content.ActivityNotFoundException) { android.widget.Toast.makeText(ctx, voiceUnavailable, android.widget.Toast.LENGTH_SHORT).show() }
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -150,7 +177,7 @@ fun ChatScreen(
     val liveMood = orbMood(ui.streaming, ui.working, !live?.content.isNullOrBlank(), failed = ui.error != null)
 
     // newest message at index 0 (the list is reversed), so growing replies stay pinned to the bottom
-    LaunchedEffect(ui.messages.size, ui.bot.id) { if (ui.messages.isNotEmpty()) listState.animateScrollToItem(0) }
+    LaunchedEffect(ui.messages.size, ui.bot.id, ui.approval?.requestId) { if (ui.messages.isNotEmpty()) listState.animateScrollToItem(0) }
 
     val send = {
         haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
@@ -193,7 +220,9 @@ fun ChatScreen(
                         .padding(start = 8.dp, end = 10.dp, top = 5.dp, bottom = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    BotAvatar(28.dp, color = botColor, mood = liveMood, talk = (live?.content?.length ?: 0) / 16, alive = true)
+                    // the orb in the bar is alive too: it fidgets now and then while nothing is happening
+                    val barOrb = rememberOrbController()
+                    BotAvatar(28.dp, color = botColor, mood = liveMood, talk = (live?.content?.length ?: 0) / 16, alive = true, controller = barOrb)
                     Spacer(Modifier.width(8.dp))
                     Text(ui.bot.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp))
                     if (ui.bot.isSandbox) {
@@ -208,11 +237,21 @@ fun ChatScreen(
                 }
             },
             actions = {
-                IconButton(onClick = { confirmClear = true }, enabled = ui.messages.isNotEmpty() && !ui.streaming) {
+                // a new chat keeps this one in the history (the drawer), as in ChatGPT
+                IconButton(onClick = app.chat::newConversation, enabled = ui.messages.isNotEmpty()) {
                     Icon(Icons.Rounded.EditNote, contentDescription = stringResource(R.string.bot_new_chat))
                 }
+                val open = ui.conversation
+                if (open != null) Box {
+                    IconButton(onClick = { chatMenu = true }) { Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.chat_more)) }
+                    ConversationMenu(
+                        chatMenu, open.pinned, onDismiss = { chatMenu = false },
+                        onRename = { renaming = true }, onPin = { app.chat.setPinned(open.id, !open.pinned) },
+                        onShare = { shareConversation(app, open, ui.bot.name) }, onDelete = { deleting = true },
+                    )
+                }
             },
-            windowInsets = WindowInsets(0),
+            windowInsets = WindowInsets.statusBars,
             colors = androidx.compose.material3.TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
         )
 
@@ -232,12 +271,27 @@ fun ChatScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
                 ) {
                     val msgs = ui.messages
+                    // the question the bot is waiting on sits under its reply (the list runs bottom up)
+                    ui.approval?.let { req ->
+                        item(key = "approval-${req.requestId}-${req.runId}") {
+                            ApprovalCard(req, busy = ui.answering, onAnswer = app.chat::answerApproval, modifier = Modifier.animateItem().padding(start = 34.dp))
+                        }
+                    }
                     items(msgs.asReversed(), key = { it.id }) { m ->
                         val last = m.id == msgs.last().id
-                        if (m.role == "user") UserBubble(m, botColor, { viewing = it }, Modifier.animateItem())
+                        if (m.role == "user") UserBubble(
+                            m, botColor, { viewing = it },
+                            onRetry = app.chat::regenerate,
+                            onCopy = { copyText(ctx, m.content) },
+                            onEdit = { app.chat.retract(m.id) { text -> input = if (input.isBlank()) text else text + "\n" + input } },
+                            modifier = Modifier.animateItem(),
+                        )
                         else BotReply(
                             m, ui.bot, thinking = last && ui.streaming, working = last && ui.working,
                             canRegenerate = last && !ui.streaming, onRegenerate = app.chat::regenerate,
+                            speaking = speaking == m.id,
+                            onSpeak = { app.speaker.toggle(m.id, m.content) { android.os.Handler(android.os.Looper.getMainLooper()).post { android.widget.Toast.makeText(ctx, ttsUnavailable, android.widget.Toast.LENGTH_SHORT).show() } } },
+                            onShare = { shareText(ctx, ui.bot.name, m.content) },
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -273,6 +327,7 @@ fun ChatScreen(
             streaming = ui.streaming,
             onSend = send,
             onStop = app.chat::stop,
+            onVoice = voice,
             modelLabel = pickLabel(ui.catalog, ui.effectivePick),
             onModel = { showModel = true },
             pending = ui.pending, canSend = ui.canSend,
@@ -311,14 +366,9 @@ fun ChatScreen(
             onDismiss = { showPicker = false },
         )
     }
-    if (confirmClear) {
-        AlertDialog(
-            onDismissRequest = { confirmClear = false },
-            title = { Text(stringResource(R.string.bot_new_chat)) },
-            text = { Text(stringResource(R.string.bot_new_chat_confirm)) },
-            confirmButton = { TextButton(onClick = { app.chat.clear(); confirmClear = false }) { Text(stringResource(R.string.common_ok)) } },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.common_cancel)) } },
-        )
+    ui.conversation?.let { c ->
+        if (renaming) RenameDialog(c.title, onDone = { app.chat.renameConversation(c.id, it); renaming = false }, onDismiss = { renaming = false })
+        if (deleting) DeleteDialog(c.title, onConfirm = { app.chat.deleteConversation(c.id); deleting = false }, onDismiss = { deleting = false })
     }
 }
 
@@ -401,8 +451,18 @@ private fun EmptyState(bot: Bot, onSuggest: (String) -> Unit) {
 
 /** The user's turn: a soft tonal bubble on the right. */
 @Composable
-private fun UserBubble(m: ChatMessage, botColor: Color, onView: (Attachment) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+private fun UserBubble(m: ChatMessage, botColor: Color, onView: (Attachment) -> Unit, onEdit: () -> Unit, onRetry: () -> Unit, onCopy: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+        if (m.failed) {
+            // it never got through: a red dot with a white !, a tap sends it again
+            val label = stringResource(R.string.bot_send_failed)
+            Box(
+                Modifier.padding(end = 8.dp).size(22.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error)
+                    .clickable(onClickLabel = label, onClick = onRetry),
+                contentAlignment = Alignment.Center,
+            ) { Text("!", color = Color.White, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.labelLarge) }
+        }
         Surface(
             color = lerp(MaterialTheme.colorScheme.surfaceContainerHigh, botColor, 0.12f),
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 8.dp),
@@ -418,13 +478,24 @@ private fun UserBubble(m: ChatMessage, botColor: Color, onView: (Attachment) -> 
             }
         }
     }
+    Row {
+        if (m.content.isNotBlank()) IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Rounded.ContentCopy, contentDescription = stringResource(R.string.bot_copy), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(15.dp))
+        }
+        // take it back: the message and what followed it go, and it returns to the input box to be changed and sent again
+        IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.bot_retract), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+        }
+    }
+    }
 }
 
 /** The bot's turn: no bubble, a page of text under its orb and name (as in Gemini and Claude). */
 @Composable
 private fun BotReply(
     m: ChatMessage, bot: Bot, thinking: Boolean, working: Boolean,
-    canRegenerate: Boolean, onRegenerate: () -> Unit, modifier: Modifier = Modifier,
+    canRegenerate: Boolean, onRegenerate: () -> Unit,
+    speaking: Boolean, onSpeak: () -> Unit, onShare: () -> Unit, modifier: Modifier = Modifier,
 ) {
     var showThoughts by rememberSaveable(m.id) { mutableStateOf(false) }
     Column(modifier.fillMaxWidth()) {
@@ -446,7 +517,10 @@ private fun BotReply(
                     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Psychology, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                            Text(stringResource(R.string.bot_thought), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 6.dp))
+                            Text(
+                                if (m.thinkingMs >= 1000) stringResource(R.string.bot_thought_for, (m.thinkingMs / 1000).toInt()) else stringResource(R.string.bot_thought),
+                                style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 6.dp),
+                            )
                             Icon(if (showThoughts) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = null, modifier = Modifier.size(18.dp))
                         }
                         AnimatedVisibility(showThoughts) {
@@ -462,14 +536,10 @@ private fun BotReply(
             }
             when {
                 m.content.isNotBlank() -> {
-                    SelectionContainer { MarkdownText(m.content, MaterialTheme.colorScheme.onSurface) }
-                    if (!thinking) ReplyActions(m.content, canRegenerate, onRegenerate)
+                    ReplyBody(m.content, bot.id)
+                    if (!thinking) ReplyActions(replyText(m.content), canRegenerate, onRegenerate, speaking, onSpeak, onShare)
                 }
-                thinking -> Text(
-                    stringResource(if (working) R.string.bot_working else R.string.bot_thinking),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                thinking -> ShimmerText(stringResource(if (working) R.string.bot_working else R.string.bot_thinking))
             }
         }
     }
@@ -505,7 +575,7 @@ private fun ErrorStrip(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: ()
 /** One big rounded container, as in Grok and Gemini; the send button morphs into a stop square while streaming. */
 @Composable
 private fun Composer(
-    hint: String, value: String, onValueChange: (String) -> Unit, streaming: Boolean, onSend: () -> Unit, onStop: () -> Unit,
+    hint: String, value: String, onValueChange: (String) -> Unit, streaming: Boolean, onSend: () -> Unit, onStop: () -> Unit, onVoice: () -> Unit,
     modelLabel: String, onModel: () -> Unit, pending: List<Pending>, canSend: Boolean, onAttach: () -> Unit, onRemove: (String) -> Unit,
 ) {
     Surface(
@@ -539,7 +609,9 @@ private fun Composer(
                     disabledContainerColor = Color.Transparent,
                 ),
             )
-            val enabled = streaming || (canSend && (value.isNotBlank() || pending.any { it.state == Pending.State.Ready }))
+            // nothing typed: the button listens instead (as in ChatGPT)
+            val listen = !streaming && value.isBlank() && pending.none { it.state == Pending.State.Ready }
+            val enabled = streaming || listen || (canSend && (value.isNotBlank() || pending.any { it.state == Pending.State.Ready }))
             // circle -> rounded square, on a spring
             val corner by animateDpAsState(
                 if (streaming) 14.dp else 22.dp,
@@ -547,17 +619,20 @@ private fun Composer(
                 label = "send shape",
             )
             Surface(
-                onClick = if (streaming) onStop else onSend,
+                onClick = when { streaming -> onStop; listen -> onVoice; else -> onSend },
                 enabled = enabled,
                 shape = RoundedCornerShape(corner),
-                color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
-                contentColor = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (listen) MaterialTheme.colorScheme.surfaceContainerHigh else if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                contentColor = if (listen) MaterialTheme.colorScheme.onSurface else if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 6.dp).size(44.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    AnimatedContent(streaming, label = "send icon") { s ->
-                        if (s) Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.onPrimary, RoundedCornerShape(3.dp)))
-                        else Icon(Icons.Rounded.ArrowUpward, contentDescription = null)
+                    AnimatedContent(if (streaming) 0 else if (listen) 1 else 2, label = "send icon") { k ->
+                        when (k) {
+                            0 -> Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.onPrimary, RoundedCornerShape(3.dp)))
+                            1 -> Icon(Icons.Rounded.Mic, contentDescription = stringResource(R.string.voice_input))
+                            else -> Icon(Icons.Rounded.ArrowUpward, contentDescription = null)
+                        }
                     }
                 }
             }
@@ -593,9 +668,9 @@ private fun cjkSpaced(name: String): String {
     return if (zh && name.firstOrNull()?.let { it.code < 0x2E80 } == true) " $name " else name
 }
 
-/** Small, quiet actions under a finished reply: copy it, or ask again. */
+/** Small, quiet actions under a finished reply: copy, read aloud, share, or ask again. */
 @Composable
-private fun ReplyActions(content: String, canRegenerate: Boolean, onRegenerate: () -> Unit) {
+private fun ReplyActions(content: String, canRegenerate: Boolean, onRegenerate: () -> Unit, speaking: Boolean, onSpeak: () -> Unit, onShare: () -> Unit) {
     val ctx = LocalContext.current
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(1500); copied = false } }
@@ -614,10 +689,65 @@ private fun ReplyActions(content: String, canRegenerate: Boolean, onRegenerate: 
                 modifier = Modifier.size(18.dp),
             )
         }
+        IconButton(onClick = onSpeak, modifier = Modifier.size(38.dp)) {
+            Icon(
+                if (speaking) Icons.Rounded.StopCircle else Icons.AutoMirrored.Rounded.VolumeUp,
+                contentDescription = stringResource(if (speaking) R.string.msg_stop_speaking else R.string.msg_speak),
+                tint = if (speaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(19.dp),
+            )
+        }
+        IconButton(onClick = onShare, modifier = Modifier.size(38.dp)) {
+            Icon(Icons.Rounded.Share, contentDescription = stringResource(R.string.msg_share), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
         if (canRegenerate) {
             IconButton(onClick = onRegenerate, modifier = Modifier.size(38.dp)) {
                 Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.bot_regenerate), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(19.dp))
             }
         }
+    }
+}
+
+private fun copyText(ctx: android.content.Context, text: String) {
+    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("message", text))
+}
+
+/** The reply as it is meant to be seen: Markdown for the words, the pictures in place. */
+@Composable
+private fun ReplyBody(content: String, botId: String) {
+    val parts = remember(content) { splitReply(content) }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        for (p in parts) when (p) {
+            is ReplyPart.Text -> SelectionContainer { MarkdownText(p.markdown, MaterialTheme.colorScheme.onSurface) }
+            is ReplyPart.Image -> ReplyImage(p.src, botId, p.alt)
+        }
+    }
+}
+
+/** "Thinking…" with a sheen running across it, as in ChatGPT. */
+@Composable
+private fun ShimmerText(text: String) {
+    val base = MaterialTheme.colorScheme.onSurfaceVariant
+    val shine = MaterialTheme.colorScheme.onSurface
+    val loop = androidx.compose.animation.core.rememberInfiniteTransition(label = "shimmer")
+    val x by loop.animateFloat(
+        -1f, 2f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1600, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "sheen",
+    )
+    androidx.compose.foundation.layout.BoxWithConstraints {
+        val w = constraints.maxWidth.toFloat().coerceAtMost(600f)
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyLarge.merge(
+                androidx.compose.ui.text.TextStyle(
+                    brush = Brush.linearGradient(
+                        listOf(base, shine, base),
+                        start = androidx.compose.ui.geometry.Offset(w * x - 120f, 0f),
+                        end = androidx.compose.ui.geometry.Offset(w * x + 120f, 0f),
+                    ),
+                ),
+            ),
+        )
     }
 }

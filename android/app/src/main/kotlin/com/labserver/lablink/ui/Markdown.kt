@@ -158,16 +158,16 @@ private fun BlockList(blocks: List<Block>, color: Color, codeBg: Color, link: Co
                 i = j; continue
             }
             when (b) {
-                is Block.Para -> Text(inline(b.text, codeBg, link), color = color, style = MaterialTheme.typography.bodyLarge)
-                is Block.Heading -> Text(
-                    inline(b.text, codeBg, link), color = color, fontWeight = FontWeight.ExtraBold,
-                    style = when (b.level) {
+                is Block.Para -> InlineText(b.text, color, codeBg, link, MaterialTheme.typography.bodyLarge)
+                is Block.Heading -> InlineText(
+                    b.text, color, codeBg, link,
+                    when (b.level) {
                         1 -> MaterialTheme.typography.titleLarge
                         2 -> MaterialTheme.typography.titleMedium
                         3 -> MaterialTheme.typography.titleSmall
                         else -> MaterialTheme.typography.bodyLarge
                     },
-                    modifier = Modifier.padding(top = 4.dp),
+                    Modifier.padding(top = 4.dp), FontWeight.ExtraBold,
                 )
                 is Block.Quote -> Row(Modifier.height(IntrinsicSize.Min)) {
                     Box(Modifier.width(3.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(2.dp)))
@@ -183,6 +183,16 @@ private fun BlockList(blocks: List<Block>, color: Color, codeBg: Color, link: Co
     }
 }
 
+/** One run of inline Markdown; the styled text is built once per text, not on every redraw while a reply streams in. */
+@Composable
+private fun InlineText(
+    text: String, color: Color, codeBg: Color, link: Color, style: androidx.compose.ui.text.TextStyle,
+    modifier: Modifier = Modifier, weight: FontWeight? = null,
+) {
+    val styled = remember(text, codeBg, link) { inline(text, codeBg, link) }
+    Text(styled, color = color, style = style, fontWeight = weight, modifier = modifier)
+}
+
 @Composable
 private fun ListItem(b: Block.Item, color: Color, codeBg: Color, link: Color) {
     val marker = when {
@@ -196,9 +206,9 @@ private fun ListItem(b: Block.Item, color: Color, codeBg: Color, link: Color) {
             marker, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.bodyLarge, modifier = Modifier.width(if (b.marker == "•" || b.task != null) 22.dp else 30.dp),
         )
-        Text(
-            inline(b.text, codeBg, link), color = if (b.task == true) MaterialTheme.colorScheme.onSurfaceVariant else color,
-            style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f),
+        InlineText(
+            b.text, if (b.task == true) MaterialTheme.colorScheme.onSurfaceVariant else color, codeBg, link,
+            MaterialTheme.typography.bodyLarge, Modifier.weight(1f),
         )
     }
 }
@@ -225,10 +235,9 @@ private fun TableBlock(t: Block.Table, color: Color, codeBg: Color, link: Color)
         for ((r, row) in (listOf(t.header) + t.rows).withIndex()) {
             Row(Modifier.then(if (r == 0) Modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest) else Modifier)) {
                 for (c in 0 until cols) {
-                    Text(
-                        inline(row.getOrNull(c) ?: "", codeBg, link), color = color,
-                        style = MaterialTheme.typography.bodyMedium, fontWeight = if (r == 0) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.width(widths[c]).padding(horizontal = 12.dp, vertical = 9.dp),
+                    InlineText(
+                        row.getOrNull(c) ?: "", color, codeBg, link, MaterialTheme.typography.bodyMedium,
+                        Modifier.width(widths[c]).padding(horizontal = 12.dp, vertical = 9.dp), if (r == 0) FontWeight.Bold else FontWeight.Normal,
                     )
                 }
             }

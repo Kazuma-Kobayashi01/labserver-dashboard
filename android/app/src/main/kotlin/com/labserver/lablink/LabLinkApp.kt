@@ -11,7 +11,11 @@ import com.labserver.lablink.net.BotClient
 import com.labserver.lablink.net.ChatController
 import com.labserver.lablink.net.ManagerClient
 import com.labserver.lablink.net.ManagerEndpoint
+import com.labserver.lablink.net.ReplyService
 import com.labserver.lablink.tunnel.TunnelController
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 class LabLinkApp : Application() {
     lateinit var prefs: Prefs
@@ -22,6 +26,15 @@ class LabLinkApp : Application() {
         private set
     lateinit var attachments: AttachmentStore
         private set
+
+    /** The pictures in replies, fetched once and kept. */
+    val media: com.labserver.lablink.net.MediaLoader by lazy {
+        val debuggable = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+        com.labserver.lablink.net.MediaLoader(this, prefs, tunnel, { url -> debuggable && url.contains("://10.0.2.2") })
+    }
+
+    /** Reads replies aloud; the engine starts on first use. */
+    val speaker: Speaker by lazy { Speaker(this) }
 
     /** Ticks when something outside the chat screen wants the chat shown (a share from another app). */
     private val chatRequests = kotlinx.coroutines.flow.MutableStateFlow(0)
@@ -47,6 +60,20 @@ class LabLinkApp : Application() {
                 role = getString(R.string.bot_default_role),
                 color = BotColors.first(),
             )
+        }
+        // a reply that is still streaming must survive the app leaving the screen
+        kotlinx.coroutines.MainScope().launch {
+            chat.ui.map { it.busy.isNotEmpty() }.distinctUntilChanged().collect { ReplyService.set(this@LabLinkApp, it) }
+        }
+        // a bot waiting for an answer while the app is away: say so (it refuses on its own after a few minutes)
+        kotlinx.coroutines.MainScope().launch {
+            var seen = emptySet<String>()
+            chat.ui.map { it.waiting }.distinctUntilChanged().collect { waiting ->
+                val fresh = waiting.filterKeys { it !in seen }
+                seen = waiting.keys
+                if (waiting.isEmpty()) ReplyService.clearApproval(this@LabLinkApp)
+                if (!tunnel.foreground) fresh.forEach { (conv, req) -> ReplyService.notifyApproval(this@LabLinkApp, req.botId, conv, req.botName, req.command) }
+            }
         }
     }
 }

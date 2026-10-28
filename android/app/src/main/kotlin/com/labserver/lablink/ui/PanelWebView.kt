@@ -13,6 +13,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -72,7 +73,7 @@ fun PanelWebView(url: String, domain: String, tunnelHost: String, title: String,
             actions = {
                 IconButton(onClick = { web?.loadUrl(url) }) { Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.web_reload)) }
             },
-            windowInsets = WindowInsets(0),
+            windowInsets = WindowInsets.statusBars,
         )
         if (!WebProxy.supported) {
             Text(stringResource(R.string.web_unsupported), modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.error)
