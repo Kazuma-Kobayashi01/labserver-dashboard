@@ -28,6 +28,10 @@ hooks:
       command: "python3 /opt/bot-manager/policy_hook.py"
       timeout: 20
       fail_closed: true
+  post_tool_call:
+    - matcher: "^terminal$"
+      command: "python3 /opt/bot-manager/policy_hook.py"
+      timeout: 20
 hooks_auto_accept: true
 """
 APP_TOOLSETS = ["file", "memory", "session_search", "terminal", "todo", "vision", "web"]
@@ -35,9 +39,15 @@ TOP_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*:")
 
 
 def add_hook(text):
-    """[text] with the policy hook, or None when it already has one. A profile with hooks of its own is left alone."""
+    """[text] with the policy hook, or None when it already has the current one. An older LabLink block is replaced;
+    a profile with hooks of its own is left alone."""
     if HOOK_MARK in text:
-        return None
+        start = text.index(HOOK_MARK)
+        end = text.index("hooks_auto_accept: true\n", start) + len("hooks_auto_accept: true\n")
+        current = HOOK_BLOCK.lstrip("\n")
+        if text[start:end] == current:
+            return None
+        return text[:start] + current + text[end:]
     if re.search(r"^hooks:", text, re.M) or re.search(r"^hooks_auto_accept:", text, re.M):
         raise ValueError("this profile already declares hooks; merge the LabLink hook by hand")
     return text.rstrip("\n") + "\n" + HOOK_BLOCK

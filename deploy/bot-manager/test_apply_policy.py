@@ -39,6 +39,22 @@ class ApplyPolicy(unittest.TestCase):
         with self.assertRaises(ValueError):
             ap.add_hook(LAB + "hooks:\n  pre_llm_call: []\n")
 
+    def test_the_older_block_is_upgraded_in_place(self):
+        old = LAB + """
+# LabLink policy: downloads, installs/updates and deletions ask the user in the app first (deploy/bot-manager/policy_hook.py)
+hooks:
+  pre_tool_call:
+    - matcher: "^terminal$"
+      command: "python3 /opt/bot-manager/policy_hook.py"
+      timeout: 20
+      fail_closed: true
+hooks_auto_accept: true
+"""
+        new = ap.add_hook(old)
+        self.assertIn("post_tool_call:", new)
+        self.assertEqual(new.count("hooks:"), 1)
+        self.assertIsNone(ap.add_hook(new))
+
     def test_the_default_bot_moves_into_the_sandbox_with_files_and_commands(self):
         out = ap.set_api_toolsets(ap.use_template_terminal(LAB, TPL), ap.APP_TOOLSETS)
         self.assertIn('terminal:\n  backend: "docker"\n  timeout: 180\n  container_memory: 1024\n  docker_image: python:3.12-slim\nbrowser:\n  inactivity_timeout: 120', out)

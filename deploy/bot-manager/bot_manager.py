@@ -787,6 +787,63 @@ def clean_content(content):
     return parts
 
 
+class ToolRelay:
+    """Follows the reply stream of one chat and, after each `hermes.tool.progress` event of a command, adds a
+    `lablink.tool` event with what Hermes leaves out: the full command when it starts, and its output, exit code and
+    time when it is done. Both come from the notes policy_hook.py keeps in the profile (`lablink-tools/`)."""
+
+    WAIT_START = 0.6
+    WAIT_DONE = 1.5
+
+    def __init__(self, mgr, bid):
+        self.folder = os.path.join(mgr.profile_dir(bid), "lablink-tools")
+        self.commands = {}
+
+    def _note(self, cid, kind, wait):
+        path = os.path.join(self.folder, f"{cid}.{kind}.json")
+        deadline = time.time() + wait
+        while True:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                os.remove(path)
+                return data
+            except (OSError, ValueError):
+                if time.time() >= deadline:
+                    return None
+                time.sleep(0.05)
+
+    def after(self, block):
+        """The event to add after this event [block] (raw lines), as bytes, or None."""
+        event, data = "", []
+        for line in block:
+            text = line.decode("utf-8", "replace").rstrip("\r\n")
+            if text.startswith("event:"):
+                event = text[6:].strip()
+            elif text.startswith("data:"):
+                data.append(text[5:].lstrip())
+        if event != "hermes.tool.progress" or not data:
+            return None
+        try:
+            ev = json.loads("\n".join(data))
+        except ValueError:
+            return None
+        cid = str(ev.get("toolCallId") or "")
+        if ev.get("tool") != "terminal" or not re.match(r"^[A-Za-z0-9_.:-]{1,120}$", cid):
+            return None
+        out = {"toolCallId": cid, "status": ev.get("status")}
+        if ev.get("status") == "running":
+            start = self._note(cid, "start", self.WAIT_START) or {}
+            self.commands[cid] = out["command"] = start.get("command", "")
+        elif ev.get("status") == "completed":
+            done = self._note(cid, "done", self.WAIT_DONE) or {}
+            out["command"] = self.commands.pop(cid, "") or (self._note(cid, "start", 0) or {}).get("command", "")
+            out.update({k: done.get(k) for k in ("output", "exitCode", "error", "durationMs")})
+        else:
+            return None
+        return ("event: lablink.tool\ndata: " + json.dumps(out) + "\n\n").encode()
+
+
 def make_handler(mgr):
     cfg = mgr.cfg
     bot_re = re.compile(r"^/m/v1/bots/([a-z0-9][a-z0-9-]{0,40})(/restore|/chat/completions|/files|/runs/([A-Za-z0-9_.:-]{1,120})/approval)?$")
@@ -865,8 +922,8 @@ def make_handler(mgr):
                         return self._json(201, mgr.create(self._body()))
                     raise ApiError(405, "method_not_allowed", "method not allowed")
                 bid, tail, run_id = bot_re.match(path).groups()
-                if not ID_RE.match(bid) and (bid not in cfg.local_profiles or tail is None or not tail.startswith(("/files", "/runs/"))):
-                    raise ApiError(404, "not_found", "not found")   # an app profile has files and approvals only
+                if not ID_RE.match(bid) and (bid not in cfg.local_profiles or tail is None or not tail.startswith(("/files", "/runs/", "/chat/"))):
+                    raise ApiError(404, "not_found", "not found")   # an app profile has chat, files and approvals only
                 if tail and tail.startswith("/runs/") and method == "POST":
                     return self._json(*mgr.answer_approval(bid, run_id, self._body()))
                 if tail == "/restore" and method == "POST":
@@ -901,8 +958,14 @@ def make_handler(mgr):
 
         # -- chat
         def _chat(self, bid, body):
-            with mgr.reg.lock:
-                bot = dict(mgr._get(bid, "active"))
+            # a sandbox bot keeps its prompt on the server; the app's own profile is told its prompt by the app
+            app_profile = not ID_RE.match(bid)
+            if app_profile:
+                mgr.app_bot_home(bid)
+                bot = {}
+            else:
+                with mgr.reg.lock:
+                    bot = dict(mgr._get(bid, "active"))
             msgs = body.get("messages")
             if not isinstance(msgs, list) or not msgs:
                 raise ApiError(400, "bad_request", "messages is required")
@@ -910,7 +973,7 @@ def make_handler(mgr):
             for m in msgs:
                 if not isinstance(m, dict) or m.get("role") not in ("user", "assistant", "system"):
                     raise ApiError(400, "bad_request", "bad message")
-                if m["role"] != "system":  # the bot's prompt lives on the server
+                if m["role"] != "system" or app_profile:
                     clean.append({"role": m["role"], "content": clean_content(m.get("content", ""))})
             if not clean:
                 raise ApiError(400, "bad_request", "no user message")
@@ -949,14 +1012,33 @@ def make_handler(mgr):
             self.end_headers()
             seen, keep = bytearray(), resp.status == 200
             try:
-                while True:
-                    chunk = resp.read1(8192)
-                    if not chunk:
-                        break
-                    if keep and len(seen) < 4 * 1024 * 1024:
-                        seen += chunk
-                    self.wfile.write(chunk)
-                    self.wfile.flush()
+                if payload.get("stream") and keep:
+                    # event by event, so the details of each command (see ToolRelay) can follow its own event
+                    relay, block = ToolRelay(mgr, bid), []
+                    while True:
+                        line = resp.readline()
+                        if not line:
+                            break
+                        if len(seen) < 4 * 1024 * 1024:
+                            seen += line
+                        self.wfile.write(line)
+                        if line.strip():
+                            block.append(line)
+                        else:
+                            extra = relay.after(block)
+                            if extra:
+                                self.wfile.write(extra)
+                            block = []
+                        self.wfile.flush()
+                else:
+                    while True:
+                        chunk = resp.read1(8192)
+                        if not chunk:
+                            break
+                        if keep and len(seen) < 4 * 1024 * 1024:
+                            seen += chunk
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 pass  # the phone went away; closing the upstream connection stops the generation
             finally:

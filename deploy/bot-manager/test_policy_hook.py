@@ -60,5 +60,20 @@ class Policy(unittest.TestCase):
         self.assertEqual(json.loads(run({"tool_name": "terminal", "tool_input": {"command": "rm x"}}))["rule_key"], "lablink-delete")
 
 
+class Notes(unittest.TestCase):
+    def test_a_command_and_its_outcome_are_noted_for_the_app(self):
+        home = tempfile.mkdtemp()
+        ph.note({"hook_event_name": "pre_tool_call", "tool_name": "terminal", "tool_input": {"command": "ls"}, "extra": {"tool_call_id": "c1"}}, home)
+        ph.note({"hook_event_name": "post_tool_call", "tool_name": "terminal", "tool_input": {"command": "ls"},
+                 "extra": {"tool_call_id": "c1", "result": json.dumps({"output": "a\nb", "exit_code": 0, "error": None}), "duration_ms": 12}}, home)
+        folder = os.path.join(home, "lablink-tools")
+        self.assertEqual(json.load(open(os.path.join(folder, "c1.start.json")))["command"], "ls")
+        self.assertEqual(json.load(open(os.path.join(folder, "c1.done.json"))),
+                         {"output": "a\nb", "exitCode": 0, "error": None, "durationMs": 12, "status": None})
+        ph.note({"hook_event_name": "pre_tool_call", "tool_name": "web_search", "extra": {"tool_call_id": "c2"}}, home)
+        ph.note({"hook_event_name": "pre_tool_call", "tool_name": "terminal", "tool_input": {"command": "x"}, "extra": {"tool_call_id": "../evil"}}, home)
+        self.assertEqual(sorted(os.listdir(folder)), ["c1.done.json", "c1.start.json"])
+
+
 if __name__ == "__main__":
     unittest.main()

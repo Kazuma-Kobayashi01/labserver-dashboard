@@ -7,6 +7,10 @@ Wire protocol (Hermes shell hooks): a JSON payload on stdin; on stdout either no
 {"action": "approve", "message": <what is asked>, "rule_key": "lablink-<kind>"}. The rule key is the kind of action, so
 "allow for this chat" covers every download (say) in that chat, and nothing else.
 
+It also keeps a note of every command for the app's command window: the full command before it runs and its output,
+exit code and time once done (post_tool_call), as `$HERMES_HOME/lablink-tools/<tool call id>.start.json` / `.done.json`.
+The bot-manager reads them as the reply streams by and forwards them to the app.
+
 Commands that run a script file (`bash x.sh`, `python3 x.py`) are judged by the script too: it is read from the profile's
 sandbox folders. This is a guard against accidents and a model going its own way, not a wall: obfuscated code can slip
 through, which is why the sandbox itself stays the security boundary.
@@ -16,6 +20,7 @@ import json
 import os
 import re
 import sys
+import time
 
 KINDS = ("delete", "install", "download")
 
@@ -125,10 +130,74 @@ def decide(payload, home):
     return {"action": "approve", "message": shown, "rule_key": f"lablink-{kind}"}
 
 
+TOOL_DIR = "lablink-tools"
+MAX_OUTPUT = 16_000
+
+
+def _call_id(payload):
+    cid = str((payload.get("extra") or {}).get("tool_call_id") or payload.get("tool_call_id") or "")
+    return cid if re.match(r"^[A-Za-z0-9_.:-]{1,120}$", cid) else ""
+
+
+def _write(home, name, data):
+    folder = os.path.join(home, TOOL_DIR)
+    os.makedirs(folder, exist_ok=True)
+    tmp = os.path.join(folder, f".{name}.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    os.replace(tmp, os.path.join(folder, name))
+
+
+def note(payload, home):
+    """Records a terminal command (before) or its outcome (after) for the app's command window."""
+    if payload.get("tool_name") != "terminal" or not home:
+        return
+    cid = _call_id(payload)
+    if not cid:
+        return
+    event = payload.get("hook_event_name")
+    if event == "pre_tool_call":
+        _write(home, f"{cid}.start.json", {"command": str((payload.get("tool_input") or {}).get("command") or ""), "at": time.time()})
+    elif event == "post_tool_call":
+        extra = payload.get("extra") or {}
+        raw = extra.get("result")
+        out, code, err = raw, None, None
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except ValueError:
+                pass
+        if isinstance(raw, dict):
+            out, code, err = raw.get("output"), raw.get("exit_code"), raw.get("error")
+        out = "" if out is None else str(out)
+        if len(out) > MAX_OUTPUT:  # keep the end: that is where errors and results usually are
+            out = "…\n" + out[-MAX_OUTPUT:]
+        _write(home, f"{cid}.done.json", {
+            "output": out, "exitCode": code, "error": err or extra.get("error_message"),
+            "durationMs": extra.get("duration_ms"), "status": extra.get("status"),
+        })
+    # notes nobody picked up (a reply that was cut off) go after a day
+    folder = os.path.join(home, TOOL_DIR)
+    try:
+        cutoff = time.time() - 86400
+        for e in os.scandir(folder):
+            if e.is_file() and e.stat().st_mtime < cutoff:
+                os.remove(e.path)
+    except OSError:
+        pass
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
     except ValueError:
+        return 0
+    home = os.environ.get("HERMES_HOME", "")
+    try:
+        note(payload, home)
+    except Exception:  # noqa: BLE001 - the command window is a nicety; it must never stop a command
+        pass
+    if payload.get("hook_event_name", "pre_tool_call") != "pre_tool_call":
         return 0
     try:
         out = decide(payload, os.environ.get("HERMES_HOME", ""))

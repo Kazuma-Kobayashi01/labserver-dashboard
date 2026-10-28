@@ -64,6 +64,7 @@ class FakeBackend:
 
 class Upstream(BaseHTTPRequestHandler):
     seen = []
+    events = []
     reply = "pong"
 
     def log_message(self, *a):
@@ -83,7 +84,11 @@ class Upstream(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream" if body.get("stream") else "application/json")
         self.end_headers()
-        if body.get("stream"):
+        if body.get("stream") and Upstream.events:
+            for part in Upstream.events:
+                self.wfile.write(part.encode())
+                self.wfile.flush()
+        elif body.get("stream"):
             for part in ("data: one\n\n", "data: two\n\n", "data: [DONE]\n\n"):
                 self.wfile.write(part.encode())
                 self.wfile.flush()
@@ -110,6 +115,7 @@ class Base(unittest.TestCase):
         threading.Thread(target=self.up.serve_forever, daemon=True).start()
         Upstream.seen = []
         Upstream.reply = "pong"
+        Upstream.events = []
         self.fb.container_files = {}
         self.mgr = bm.Manager(self.cfg, self.fb)
         self.srv = ThreadingHTTPServer(("127.0.0.1", 0), bm.make_handler(self.mgr))
@@ -346,8 +352,7 @@ class Api(Base):
         with urllib.request.urlopen(req, timeout=10) as r:
             self.assertEqual(json.loads(r.read())["path"], "/root/.hermes/attachments/a.txt")
         self.assertEqual(open(os.path.join(home, "attachments", "a.txt"), "rb").read(), b"hello")
-        for method, path in (("PATCH", "/m/v1/bots/labbot"), ("DELETE", "/m/v1/bots/labbot"), ("POST", "/m/v1/bots/labbot/chat/completions"),
-                             ("POST", "/m/v1/bots/labbot/restore"), ("POST", "/m/v1/bots/bluefish/files")):
+        for method, path in (("PATCH", "/m/v1/bots/labbot"), ("DELETE", "/m/v1/bots/labbot"), ("POST", "/m/v1/bots/labbot/restore"), ("POST", "/m/v1/bots/bluefish/files")):
             self.assertEqual(self.call(method, path, {"name": "x", "messages": [{"role": "user", "content": "hi"}]})[0], 404, path)
 
     def test_a_picture_only_the_sandbox_has_is_kept_after_the_reply(self):
@@ -372,6 +377,41 @@ class Api(Base):
         self.fb.container_files = {"/tmp/x.jpg": b"jpg"}
         self.assertEqual(self.media(b["id"], "/tmp/x.jpg"), (200, b"jpg"))
         self.assertEqual(self.media(b["id"], "/tmp/missing.jpg")[0], 404)
+
+    def test_the_stream_carries_each_commands_text_and_output(self):
+        b = self.make("A")
+        notes = os.path.join(self.cfg.profiles, b["id"], "lablink-tools")
+        os.makedirs(notes)
+        json.dump({"command": "ls -la /workspace", "at": 1}, open(os.path.join(notes, "call_1.start.json"), "w"))
+        json.dump({"output": "total 0", "exitCode": 0, "durationMs": 42}, open(os.path.join(notes, "call_1.done.json"), "w"))
+        Upstream.events = [
+            'data: {"choices":[{"delta":{"content":"Looking"}}]}\n\n',
+            'event: hermes.tool.progress\ndata: {"tool":"terminal","label":"ls","toolCallId":"call_1","status":"running"}\n\n',
+            ': keepalive\n\n',
+            'event: hermes.tool.progress\ndata: {"tool":"terminal","toolCallId":"call_1","status":"completed"}\n\n',
+            'event: hermes.tool.progress\ndata: {"tool":"web_search","toolCallId":"call_2","status":"running"}\n\n',
+            'data: [DONE]\n\n',
+        ]
+        s, raw = self.call("POST", f"/m/v1/bots/{b['id']}/chat/completions", {"stream": True, "messages": [{"role": "user", "content": "hi"}]})
+        text = raw.decode()
+        tools = [json.loads(l[5:]) for l in text.split("\n") if l.startswith("data:") and "lablink" not in l and '"toolCallId"' in l and '"command"' in l]
+        self.assertEqual(s, 200)
+        self.assertIn('"Looking"', text)
+        self.assertEqual(text.count("event: lablink.tool"), 2)   # the web search gets no command window
+        self.assertEqual(tools[0], {"toolCallId": "call_1", "status": "running", "command": "ls -la /workspace"})
+        self.assertEqual(tools[1], {"toolCallId": "call_1", "status": "completed", "command": "ls -la /workspace", "output": "total 0", "exitCode": 0, "error": None, "durationMs": 42})
+        self.assertEqual(os.listdir(notes), [])   # notes are taken once
+
+    def test_the_app_profile_chats_through_the_manager_with_its_own_prompt(self):
+        home = os.path.join(self.cfg.profiles, "labbot")
+        os.makedirs(home)
+        open(os.path.join(home, ".env"), "w").write("API_SERVER_KEY=lab-key\n")
+        s, _ = self.call("POST", "/m/v1/bots/labbot/chat/completions",
+                         {"messages": [{"role": "system", "content": "be kind"}, {"role": "user", "content": "hi"}]})
+        self.assertEqual(s, 200)
+        path, auth, sent = Upstream.seen[-1]
+        self.assertEqual((path, auth), ("/p/labbot/v1/chat/completions", "Bearer lab-key"))
+        self.assertEqual(sent["messages"], [{"role": "system", "content": "be kind"}, {"role": "user", "content": "hi"}])
 
     def test_chat_asks_for_markdown_only_when_the_app_does(self):
         b = self.make("A")
