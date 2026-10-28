@@ -47,6 +47,14 @@ class FakeBackend:
     def fix_owner(self, path):
         pass
 
+    container_files = {}   # path inside the running sandbox -> bytes
+
+    def copy_out(self, path, container_path, dest):
+        if not self.sandboxes.get(os.path.basename(path)) or container_path not in self.container_files:
+            return False
+        open(dest, "wb").write(self.container_files[container_path])
+        return True
+
     def gateway_serves(self, profile, key):
         return self.serves
 
@@ -56,6 +64,7 @@ class FakeBackend:
 
 class Upstream(BaseHTTPRequestHandler):
     seen = []
+    reply = "pong"
 
     def log_message(self, *a):
         pass
@@ -63,6 +72,14 @@ class Upstream(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         Upstream.seen.append((self.path, self.headers.get("Authorization"), body))
+        if self.path.endswith("/approval"):
+            out = json.dumps({"ok": True, "resolved": 1}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+            return
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream" if body.get("stream") else "application/json")
         self.end_headers()
@@ -71,7 +88,7 @@ class Upstream(BaseHTTPRequestHandler):
                 self.wfile.write(part.encode())
                 self.wfile.flush()
         else:
-            self.wfile.write(json.dumps({"choices": [{"message": {"content": "pong"}}]}).encode())
+            self.wfile.write(json.dumps({"choices": [{"message": {"content": Upstream.reply}}]}).encode())
 
 
 class Base(unittest.TestCase):
@@ -92,6 +109,8 @@ class Base(unittest.TestCase):
         self.fb.upstream_port = self.up.server_address[1]
         threading.Thread(target=self.up.serve_forever, daemon=True).start()
         Upstream.seen = []
+        Upstream.reply = "pong"
+        self.fb.container_files = {}
         self.mgr = bm.Manager(self.cfg, self.fb)
         self.srv = ThreadingHTTPServer(("127.0.0.1", 0), bm.make_handler(self.mgr))
         self.srv.daemon_threads = True
@@ -202,6 +221,24 @@ class Api(Base):
                 self.assertEqual(self.call("DELETE", f"/m/v1/bots/{b['id']}?purge=1")[0], 200)
                 self.assertFalse(os.path.exists(os.path.join(self.cfg.profiles, b["id"])))
 
+    def test_a_chat_transcript_written_after_trashing_does_not_block_restore_or_purge(self):
+        for action in ("restore", "purge"):
+            b = self.make(action)
+            self.call("DELETE", f"/m/v1/bots/{b['id']}")
+            stub = os.path.join(self.cfg.profiles, b["id"], "sessions")
+            os.makedirs(stub)
+            open(os.path.join(stub, "api-late.jsonl"), "w").write("late chat")
+            if action == "restore":
+                self.assertEqual(self.call("POST", f"/m/v1/bots/{b['id']}/restore")[0], 200)
+                home = os.path.join(self.cfg.profiles, b["id"])
+                self.assertTrue(os.path.exists(os.path.join(home, "state.db")))
+                # the late transcript is kept with the bot
+                self.assertEqual(open(os.path.join(home, "sessions", "api-late.jsonl")).read(), "late chat")
+            else:
+                self.assertEqual(self.call("DELETE", f"/m/v1/bots/{b['id']}?purge=1")[0], 200)
+                self.assertFalse(os.path.exists(os.path.join(self.cfg.profiles, b["id"])))
+                self.assertFalse(os.path.exists(os.path.join(self.cfg.trash, b["id"])))
+
     def test_a_non_log_directory_in_the_way_is_never_deleted(self):
         b = self.make("A")
         self.call("DELETE", f"/m/v1/bots/{b['id']}")
@@ -248,6 +285,101 @@ class Api(Base):
         self.assertEqual(sent["messages"], [{"role": "user", "content": "hi"}])
         self.assertNotIn("tools", sent)
         self.assertEqual(sent["model"], "hermes-agent")
+
+    def media(self, bot, path, key=KEY):
+        from urllib.parse import quote
+        return self.call("GET", f"/m/v1/media?bot={quote(bot)}&path={quote(path)}", key=key)
+
+    def test_media_maps_sandbox_paths_to_the_profile_and_serves_only_pictures(self):
+        b = self.make("A")
+        home = os.path.join(self.cfg.profiles, b["id"])
+        png = b"\x89PNG\r\n\x1a\nfake"
+        os.makedirs(os.path.join(home, "cache", "images"), exist_ok=True)
+        open(os.path.join(home, "cache", "images", "chart.png"), "wb").write(png)
+        box = os.path.join(home, "sandboxes", "docker", "profile_x", "workspace")
+        os.makedirs(box, exist_ok=True)
+        open(os.path.join(box, "plot.jpg"), "wb").write(b"jpg")
+        open(os.path.join(home, ".env"), "w").write("API_SERVER_KEY=secret\n")
+
+        self.assertEqual(self.media(b["id"], "/root/.hermes/cache/images/chart.png"), (200, png))
+        self.assertEqual(self.media(b["id"], "/workspace/plot.jpg"), (200, b"jpg"))
+        self.assertEqual(self.media(b["id"], os.path.join(home, "cache/images/chart.png"))[0], 200)   # a host path in the profile
+        self.assertEqual(self.media(b["id"], "/root/.hermes/.env")[0], 415)                          # not a picture
+        self.assertEqual(self.media(b["id"], "/root/.hermes/../../../etc/passwd.png")[0], 404)       # outside the profile
+        self.assertEqual(self.media(b["id"], "/tmp/x.png")[0], 404)                                  # no sandbox has it
+        self.assertEqual(self.media(b["id"], "/root/.hermes/cache/images/chart.png", key="wrong")[0], 401)
+        self.assertEqual(self.media("b0000000000", "/root/.hermes/cache/images/chart.png")[0], 404)
+
+    def test_media_of_the_app_profile_maps_its_sandbox_but_no_link_out(self):
+        home = os.path.join(self.cfg.profiles, "labbot")
+        os.makedirs(os.path.join(home, "images"))
+        open(os.path.join(home, "images", "a.webp"), "wb").write(b"webp")
+        secret = os.path.join(self.tmp, "secret.png")
+        open(secret, "wb").write(b"no")
+        os.symlink(secret, os.path.join(home, "link.png"))
+        self.assertEqual(self.media("labbot", "/root/.hermes/images/a.webp"), (200, b"webp"))
+        self.assertEqual(self.media("labbot", os.path.join(home, "images", "a.webp")), (200, b"webp"))
+        self.assertEqual(self.media("labbot", os.path.join(home, "link.png"))[0], 404)
+        os.makedirs(os.path.join(self.cfg.profiles, "bluefish"))
+        self.assertEqual(self.media("bluefish", "/root/.hermes/images/a.webp")[0], 404)   # not a profile the app may read
+
+    def test_an_answer_to_an_approval_goes_to_hermes_with_the_bots_key(self):
+        b = self.make("A")
+        s, body = self.call("POST", f"/m/v1/bots/{b['id']}/runs/chatcmpl-abc123/approval", {"choice": "session", "request_id": "r-1"})
+        self.assertEqual((s, json.loads(body)), (200, {"ok": True, "resolved": 1}))
+        path, auth, sent = Upstream.seen[-1]
+        self.assertEqual(path, f"/p/{b['id']}/v1/runs/chatcmpl-abc123/approval")
+        self.assertEqual(auth, "Bearer " + bm.read_env_value(os.path.join(self.cfg.profiles, b["id"], ".env"), "API_SERVER_KEY"))
+        self.assertEqual(sent, {"choice": "session", "request_id": "r-1"})
+        self.assertEqual(self.call("POST", f"/m/v1/bots/{b['id']}/runs/x/approval", {"choice": "yes"})[0], 400)
+        self.assertEqual(self.call("POST", f"/m/v1/bots/{b['id']}/runs/x/approval", {"choice": "once"}, key="wrong")[0], 401)
+
+    def test_the_app_profile_gets_files_and_approvals_but_nothing_else(self):
+        home = os.path.join(self.cfg.profiles, "labbot")
+        os.makedirs(home)
+        open(os.path.join(home, ".env"), "w").write("API_SERVER_KEY=lab-key\n")
+        s, body = self.call("POST", "/m/v1/bots/labbot/runs/chatcmpl-1/approval", {"choice": "deny"})
+        self.assertEqual(s, 200)
+        self.assertEqual(Upstream.seen[-1][:2], ("/p/labbot/v1/runs/chatcmpl-1/approval", "Bearer lab-key"))
+        req = urllib.request.Request(self.base + "/m/v1/bots/labbot/files", method="POST", data=b"hello",
+                                     headers={"Authorization": f"Bearer {KEY}", "X-Filename": "a.txt"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            self.assertEqual(json.loads(r.read())["path"], "/root/.hermes/attachments/a.txt")
+        self.assertEqual(open(os.path.join(home, "attachments", "a.txt"), "rb").read(), b"hello")
+        for method, path in (("PATCH", "/m/v1/bots/labbot"), ("DELETE", "/m/v1/bots/labbot"), ("POST", "/m/v1/bots/labbot/chat/completions"),
+                             ("POST", "/m/v1/bots/labbot/restore"), ("POST", "/m/v1/bots/bluefish/files")):
+            self.assertEqual(self.call(method, path, {"name": "x", "messages": [{"role": "user", "content": "hi"}]})[0], 404, path)
+
+    def test_a_picture_only_the_sandbox_has_is_kept_after_the_reply(self):
+        b = self.make("A")
+        self.fb.sandboxes[b["id"]] = True
+        self.fb.container_files = {"/tmp/chart.png": b"png-bytes"}
+        Upstream.reply = "here it is MEDIA:/tmp/chart.png."
+        self.call("POST", f"/m/v1/bots/{b['id']}/chat/completions", {"messages": [{"role": "user", "content": "draw"}]})
+        kept = self.mgr._rescued(b["id"], "/tmp/chart.png")
+        for _ in range(50):
+            if os.path.exists(kept):
+                break
+            time.sleep(0.05)
+        # the sandbox is gone now, the copy still answers
+        self.fb.sandboxes[b["id"]] = False
+        self.fb.container_files = {}
+        self.assertEqual(self.media(b["id"], "/tmp/chart.png"), (200, b"png-bytes"))
+
+    def test_a_picture_is_taken_from_a_running_sandbox_on_request(self):
+        b = self.make("A")
+        self.fb.sandboxes[b["id"]] = True
+        self.fb.container_files = {"/tmp/x.jpg": b"jpg"}
+        self.assertEqual(self.media(b["id"], "/tmp/x.jpg"), (200, b"jpg"))
+        self.assertEqual(self.media(b["id"], "/tmp/missing.jpg")[0], 404)
+
+    def test_chat_asks_for_markdown_only_when_the_app_does(self):
+        b = self.make("A")
+        self.call("POST", f"/m/v1/bots/{b['id']}/chat/completions", {"messages": [{"role": "user", "content": "hi"}], "markdown": True})
+        self.assertEqual(Upstream.seen[-1][2]["messages"], [{"role": "system", "content": bm.MARKDOWN_HINT}, {"role": "user", "content": "hi"}])
+        self.assertNotIn("markdown", Upstream.seen[-1][2])
+        self.call("POST", f"/m/v1/bots/{b['id']}/chat/completions", {"messages": [{"role": "user", "content": "hi"}], "markdown": "yes"})
+        self.assertEqual(Upstream.seen[-1][2]["messages"], [{"role": "user", "content": "hi"}])
 
     def test_chat_streams_and_rejects_trashed(self):
         b = self.make("A")

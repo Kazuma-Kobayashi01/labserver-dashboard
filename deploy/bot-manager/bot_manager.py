@@ -8,6 +8,8 @@ Lifecycle: create -> active -> (delete) trashed -> (restore) active | (purge) go
 profile directory is moved out of Hermes' profiles, so the gateway no longer serves it; nothing is lost until purge.
 The janitor never deletes data it does not recognise: unknown profiles are moved to the trash.
 """
+import glob
+import hashlib
 import hmac
 import http.client
 import json
@@ -21,7 +23,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urlsplit, parse_qs
 
 log = logging.getLogger("bot-manager")
 
@@ -32,8 +34,17 @@ MAX_UPLOAD = 25 * 1024 * 1024          # one file for the bot's sandbox
 MAX_IMAGE_URL = 8 * 1024 * 1024
 MAX_IMAGES = 8
 MAX_TEXT_PART = 400_000
+MAX_MEDIA = 25 * 1024 * 1024           # one picture a bot shows in its reply
+# sandbox paths its container mounts from the profile; a picture anywhere else (/tmp ...) lives only as long as the container
+MOUNTED_PREFIXES = ("/root/.hermes/", "/workspace/", "/root/")
+MEDIA_RE = re.compile(r"MEDIA:(/\S+)")
+MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 IMAGE_PREFIXES = ("data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,", "data:image/gif;base64,")
 CHAT_FIELDS = ("messages", "stream", "temperature", "max_tokens")
+# added in front of the conversation when the app asks for formatted replies ("markdown": true); the bot's own prompt stays
+MARKDOWN_HINT = ("Format replies in Markdown where it helps reading: headings for long answers, bullet or numbered lists for "
+                 "steps and options, tables for comparisons, **bold** for key terms, and fenced code blocks with a language "
+                 "tag for code, commands and config. Keep short conversational replies as plain sentences.")
 
 
 class ApiError(Exception):
@@ -63,6 +74,9 @@ class Config:
         self.catalog_path = e.get("CATALOG_PATH", "")
         self.bot_storage = int(e.get("BOT_STORAGE_MB", "500")) * 1024 * 1024   # attachments per bot
         self.sandbox_attachments = e.get("SANDBOX_ATTACHMENTS", "/root/.hermes/attachments")   # where the sandbox sees them
+        # Hermes profiles outside the registry that the app also talks to (its default bot): they get the same files,
+        # pictures and approvals as the sandbox bots, nothing else (no rename, trash or chat through the manager)
+        self.local_profiles = [p.strip() for p in e.get("LOCAL_PROFILES", "labbot").split(",") if re.match(r"^[a-z][a-z0-9-]{0,30}$", p.strip())]
 
     @property
     def profiles(self):
@@ -227,6 +241,22 @@ class Backend:
                 name = src[len(base):].split("/", 1)[0]
                 found[name] = found.get(name, 0) + 1
         return found
+
+    def copy_out(self, path, container_path, dest):
+        """Copies one file out of a running sandbox of the profile at [path]; False when no sandbox has it."""
+        for cid, running in self._containers_under(path):
+            if not running:
+                continue
+            # read through the container rather than `docker cp`, which cannot see a sandbox's /tmp (a tmpfs)
+            try:
+                with open(dest, "wb") as f:
+                    r = subprocess.run(["docker", "exec", cid, "head", "-c", str(MAX_MEDIA + 1), "--", container_path],
+                                       stdout=f, stderr=subprocess.PIPE, timeout=60, env=self.env)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if r.returncode == 0 and os.path.getsize(dest) > 0:
+                return True
+        return False
 
     def fix_owner(self, path):
         """Sandboxes write as root; give the files back so they can be removed."""
@@ -423,11 +453,136 @@ class Manager:
     def attachments_dir(self, bid):
         return os.path.join(self.profile_dir(bid), "attachments")
 
+    def app_bot_home(self, bot):
+        """The profile folder of a bot the app may use files, pictures and approvals with: an active sandbox bot, or one of
+        the configured app profiles."""
+        if ID_RE.match(bot or ""):
+            with self.reg.lock:
+                self._get(bot, "active")
+        elif bot not in self.cfg.local_profiles or not os.path.isdir(self.profile_dir(bot)):
+            raise ApiError(404, "not_found", "no such bot")
+        return self.profile_dir(bot)
+
+    def media_file(self, bot, path):
+        """The picture a bot's reply names (`MEDIA:<path>`), as (host path, content type). Bots name paths inside their
+        sandbox; those are mapped to the profile folders the container mounts (/root/.hermes/..., /root, /workspace), and a
+        picture only the container has (/tmp ...) is copied out. Host paths inside the profile work too. Only image files are
+        served, and only real files inside the profile (no links out)."""
+        if not isinstance(path, str) or not path.startswith("/") or "\x00" in path:
+            raise ApiError(400, "bad_request", "bad path")
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in MEDIA_TYPES:
+            raise ApiError(415, "not_an_image", "only pictures can be fetched")
+        home = self.app_bot_home(bot)
+        roots = [home]
+        candidates = []
+        norm = os.path.normpath(path)
+        if norm.startswith("/root/.hermes/"):
+            candidates.append(os.path.join(home, norm[len("/root/.hermes/"):]))
+        for dest, sub_ in (("/workspace/", "workspace"), ("/root/", "home")):
+            if norm.startswith(dest):
+                for box in sorted(glob.glob(os.path.join(home, "sandboxes", "docker", "*", sub_))):
+                    candidates.append(os.path.join(box, norm[len(dest):]))
+        candidates.append(norm)   # a host path inside the profile
+        real_roots = [os.path.realpath(r) + os.sep for r in roots]
+        if not norm.startswith(MOUNTED_PREFIXES) and not norm.startswith(os.path.realpath(home) + os.sep):
+            # only inside the container: take it out now (a fresh copy while the sandbox runs), else the copy kept earlier
+            self.rescue_media(bot, norm)
+            candidates.insert(0, self._rescued(bot, norm))
+        for c in candidates:
+            real = os.path.realpath(c)
+            if not any(real.startswith(r) for r in real_roots) or not os.path.isfile(real):
+                continue
+            if os.path.splitext(real)[1].lower() not in MEDIA_TYPES:
+                continue
+            if os.path.getsize(real) > MAX_MEDIA:
+                raise ApiError(413, "too_large", "picture too large")
+            return real, MEDIA_TYPES[os.path.splitext(real)[1].lower()]
+        raise ApiError(404, "not_found", "no such picture")
+
+    def _rescued(self, bid, path):
+        ext = os.path.splitext(path)[1].lower()
+        return os.path.join(self.cfg.profiles, bid, "media-rescue", hashlib.sha1(path.encode()).hexdigest()[:24] + ext)
+
+    def rescue_media(self, bid, path):
+        """Keeps a copy of a picture a sandbox made outside its mounted folders (in /tmp, say), so the reply can still show it
+        after the sandbox is gone. Best effort: a copy that fails or is too large is dropped."""
+        if os.path.splitext(path)[1].lower() not in MEDIA_TYPES or path.startswith(MOUNTED_PREFIXES):
+            return
+        dest = self._rescued(bid, path)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        tmp = f"{dest}.{secrets.token_hex(4)}.part"
+        try:
+            if self.backend.copy_out(os.path.join(self.cfg.profiles, bid), path, tmp) and os.path.isfile(tmp) \
+                    and not os.path.islink(tmp) and os.path.getsize(tmp) <= MAX_MEDIA:
+                os.replace(tmp, dest)
+        except Exception as e:  # noqa: BLE001 - a picture that cannot be kept must not break anything else
+            log.info("could not keep a picture of %s: %s", bid, e)
+        finally:
+            if os.path.isdir(tmp):
+                shutil.rmtree(tmp, ignore_errors=True)
+            elif os.path.exists(tmp):
+                os.remove(tmp)
+
+    def rescue_reply_media(self, bid, raw, streamed):
+        """Reads the reply that just went to the phone and keeps the pictures it names that only the sandbox has."""
+        text = []
+        try:
+            if streamed:
+                for line in raw.decode("utf-8", "replace").splitlines():
+                    if line.startswith("data:") and line[5:].strip() not in ("", "[DONE]"):
+                        try:
+                            delta = json.loads(line[5:])["choices"][0].get("delta") or {}
+                            text.append(delta.get("content") or "")
+                        except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+                            pass
+            else:
+                text.append(json.loads(raw)["choices"][0]["message"]["content"] or "")
+        except (ValueError, KeyError, IndexError, TypeError):
+            return
+        for path in {m.rstrip(".,;:!?)]'\"。，；：！？）") for m in MEDIA_RE.findall("".join(text))}:
+            self.rescue_media(bid, os.path.normpath(path))
+
+    APPROVAL_CHOICES = ("once", "session", "always", "deny")
+
+    def answer_approval(self, bid, run_id, body):
+        """Passes the user's answer to a pending approval (a guarded command the bot wants to run) to Hermes, with the
+        bot's own key. Returns (status, JSON) as Hermes answered."""
+        self.app_bot_home(bid)
+        choice = str(body.get("choice", "")).strip().lower()
+        if choice not in self.APPROVAL_CHOICES:
+            raise ApiError(400, "bad_request", "choice must be one of " + ", ".join(self.APPROVAL_CHOICES))
+        out = {"choice": choice}
+        rid = body.get("request_id")
+        if rid is not None:
+            if not isinstance(rid, str) or not re.match(r"^[A-Za-z0-9_.:-]{1,120}$", rid):
+                raise ApiError(400, "bad_request", "bad request_id")
+            out["request_id"] = rid
+        key = self.key_of(bid)
+        if not key:
+            raise ApiError(500, "no_key", "the bot has no key")
+        host, port = self.backend._host_port()
+        conn = http.client.HTTPConnection(host, port, timeout=30)
+        try:
+            conn.request("POST", f"/p/{bid}/v1/runs/{run_id}/approval", json.dumps(out),
+                         {"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+            resp = conn.getresponse()
+            raw = resp.read()
+        except OSError:
+            raise ApiError(502, "upstream", "Hermes is not reachable")
+        finally:
+            conn.close()
+        try:
+            data = json.loads(raw) if raw else {}
+        except ValueError:
+            data = {"raw": raw[:500].decode("utf-8", "replace")}
+        log.info("approval for %s: %s -> %s", bid, choice, resp.status)
+        return resp.status, data
+
     def store_upload(self, bid, name, stream, length):
         """Writes one uploaded file into the bot's attachments directory (which its sandbox mounts) and returns where the
         sandbox sees it. The data is streamed to a temporary file, so a refused upload leaves nothing behind."""
-        with self.reg.lock:
-            self._get(bid, "active")
+        self.app_bot_home(bid)
         if length <= 0:
             raise ApiError(400, "bad_request", "empty file")
         if length > MAX_UPLOAD:
@@ -463,16 +618,32 @@ class Manager:
         return {"name": final, "size": length, "path": f"{self.cfg.sandbox_attachments}/{final}"}
 
     # -- trash / restore / purge
-    def _clear_stub(self, bid):
-        """After a bot is trashed the gateway may recreate `profiles/<id>` holding only its log files. Remove such a
-        leftover so the real directory can move back; anything else there is not ours to delete."""
+    # what the gateway may write into `profiles/<id>` after the bot went to the trash: its logs, and the transcript of a chat
+    # that was still running when it was trashed
+    STUB_DIRS = ("logs", "sessions")
+
+    def _clear_stub(self, bid, keep_sessions=False):
+        """After a bot is trashed the gateway may recreate `profiles/<id>` holding only its logs and session transcripts.
+        Remove such a leftover so the real directory can move back; on a restore the transcripts are moved into the bot
+        first (the newer one wins). Anything else there is not ours to delete."""
         stub = self.profile_dir(bid)
         if not os.path.lexists(stub):
             return
+        if os.path.islink(stub):
+            raise ApiError(409, "profile_dir_busy", "an unexpected directory is in the way; remove it by hand")
         for root, _dirs, files in os.walk(stub):
             rel = os.path.relpath(root, stub)
-            if files and rel != "logs" and not rel.startswith("logs" + os.sep):
+            top = rel.split(os.sep, 1)[0]
+            if files and top not in self.STUB_DIRS:
                 raise ApiError(409, "profile_dir_busy", "an unexpected directory is in the way; remove it by hand")
+        if keep_sessions and os.path.isdir(os.path.join(stub, "sessions")):
+            dest = os.path.join(self.trash_dir(bid), "sessions")
+            os.makedirs(dest, exist_ok=True)
+            for e in os.scandir(os.path.join(stub, "sessions")):
+                if e.is_file(follow_symlinks=False):
+                    target = os.path.join(dest, e.name)
+                    if not os.path.exists(target) or os.path.getmtime(target) < e.stat().st_mtime:
+                        os.replace(e.path, target)
         shutil.rmtree(stub)
 
     def trash(self, bid):
@@ -491,7 +662,7 @@ class Manager:
             b = self._get(bid, "trashed")
             if self.reg.count("active") + self.reg.count("creating") >= self.cfg.max_bots:
                 raise ApiError(409, "limit_reached", f"at most {self.cfg.max_bots} bots; delete one first")
-            self._clear_stub(bid)
+            self._clear_stub(bid, keep_sessions=True)
             os.replace(self.trash_dir(bid), self.profile_dir(bid))
             b["state"] = "active"
             b.pop("trashedAt", None)
@@ -618,8 +789,8 @@ def clean_content(content):
 
 def make_handler(mgr):
     cfg = mgr.cfg
-    bot_re = re.compile(r"^/m/v1/bots/(b[0-9a-f]{10})(/restore|/chat/completions|/files)?$")
-    open_paths = ("/m/v1/bots", "/m/v1/models")
+    bot_re = re.compile(r"^/m/v1/bots/([a-z0-9][a-z0-9-]{0,40})(/restore|/chat/completions|/files|/runs/([A-Za-z0-9_.:-]{1,120})/approval)?$")
+    open_paths = ("/m/v1/bots", "/m/v1/models", "/m/v1/media")
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "bot-manager"
@@ -668,6 +839,21 @@ def make_handler(mgr):
                 if path not in open_paths and not bot_re.match(path):
                     raise ApiError(404, "not_found", "not found")
                 self._authed()
+                if path == "/m/v1/media":
+                    if method != "GET":
+                        raise ApiError(405, "method_not_allowed", "method not allowed")
+                    q = parse_qs(urlsplit(self.path).query)
+                    real, ctype = mgr.media_file((q.get("bot") or [""])[0], (q.get("path") or [""])[0])
+                    size = os.path.getsize(real)
+                    self.send_response(200)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Length", str(size))
+                    self.send_header("Cache-Control", "private, max-age=86400")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.end_headers()
+                    with open(real, "rb") as f:
+                        shutil.copyfileobj(f, self.wfile, 256 * 1024)
+                    return
                 if path == "/m/v1/models":
                     if method != "GET":
                         raise ApiError(405, "method_not_allowed", "method not allowed")
@@ -678,7 +864,11 @@ def make_handler(mgr):
                     if method == "POST":
                         return self._json(201, mgr.create(self._body()))
                     raise ApiError(405, "method_not_allowed", "method not allowed")
-                bid, tail = bot_re.match(path).groups()
+                bid, tail, run_id = bot_re.match(path).groups()
+                if not ID_RE.match(bid) and (bid not in cfg.local_profiles or tail is None or not tail.startswith(("/files", "/runs/"))):
+                    raise ApiError(404, "not_found", "not found")   # an app profile has files and approvals only
+                if tail and tail.startswith("/runs/") and method == "POST":
+                    return self._json(*mgr.answer_approval(bid, run_id, self._body()))
                 if tail == "/restore" and method == "POST":
                     return self._json(200, mgr.restore(bid))
                 if tail == "/chat/completions" and method == "POST":
@@ -724,6 +914,8 @@ def make_handler(mgr):
                     clean.append({"role": m["role"], "content": clean_content(m.get("content", ""))})
             if not clean:
                 raise ApiError(400, "bad_request", "no user message")
+            if body.get("markdown") is True:
+                clean.insert(0, {"role": "system", "content": MARKDOWN_HINT})
             payload = {k: body[k] for k in CHAT_FIELDS if k in body}
             payload.update(messages=clean, model="hermes-agent")
             # the model: what the request asks for, else the bot's own default, else Hermes' global one
@@ -755,17 +947,23 @@ def make_handler(mgr):
                 self.send_header("Cache-Control", "no-cache")
                 self.send_header("X-Accel-Buffering", "no")
             self.end_headers()
+            seen, keep = bytearray(), resp.status == 200
             try:
                 while True:
                     chunk = resp.read1(8192)
                     if not chunk:
                         break
+                    if keep and len(seen) < 4 * 1024 * 1024:
+                        seen += chunk
                     self.wfile.write(chunk)
                     self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 pass  # the phone went away; closing the upstream connection stops the generation
             finally:
                 conn.close()
+            if keep and b"MEDIA:" in seen:
+                # the sandbox is still up right after a reply: keep its pictures before it is cleared away
+                threading.Thread(target=mgr.rescue_reply_media, args=(bid, bytes(seen), bool(payload.get("stream"))), daemon=True).start()
 
     return Handler
 
