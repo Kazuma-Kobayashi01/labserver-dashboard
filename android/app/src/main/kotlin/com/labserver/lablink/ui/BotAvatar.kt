@@ -286,11 +286,24 @@ fun BotAvatar(
     val err by animateFloatAsState(if (mood == OrbMood.Error) 1f else 0f, spring(stiffness = 200f), label = "error")
     val dozeMood by animateFloatAsState(if (mood == OrbMood.Sleepy) 1f else 0f, spring(stiffness = 60f), label = "doze")
 
-    val loop = rememberInfiniteTransition(label = "orb")
-    val phase by loop.animateFloat(0f, 1f, infiniteRepeatable(tween(2400, easing = LinearEasing)), label = "phase")
-    val slow by loop.animateFloat(0f, 1f, infiniteRepeatable(tween(4200, easing = LinearEasing)), label = "idle blink")
-    val zz by loop.animateFloat(0f, 1f, infiniteRepeatable(tween(3600, easing = LinearEasing)), label = "z")
-    val glowPulse by loop.animateFloat(0.55f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "glow")
+    // the endless loops (breathing, blinking, the dozing z's) run only while there is something to show: a busy or
+    // "alive" orb, or one asleep; a plain idle orb draws no frames at all between its fidgets
+    val looping = mood != OrbMood.Idle
+    // an idle orb blinks now and then: a short one-off animation every few seconds, not a loop running all the time
+    val idleBlink = remember { Animatable(0f) }
+    if (alive && !looping) LaunchedEffect(Unit) {
+        while (true) {
+            delay(kotlin.random.Random.nextLong(3_000, 6_500))
+            if ((controller?.sleep?.value ?: 0f) > 0.3f) continue
+            idleBlink.animateTo(1f, tween(90))
+            idleBlink.animateTo(0f, tween(120))
+        }
+    }
+    val loop = if (looping) rememberInfiniteTransition(label = "orb") else null
+    val phaseS = loop?.animateFloat(0f, 1f, infiniteRepeatable(tween(2400, easing = LinearEasing)), label = "phase")
+    val slowS = loop?.animateFloat(0f, 1f, infiniteRepeatable(tween(4200, easing = LinearEasing)), label = "idle blink")
+    val zzS = loop?.animateFloat(0f, 1f, infiniteRepeatable(tween(3600, easing = LinearEasing)), label = "z")
+    val glowS = loop?.animateFloat(0.55f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "glow")
 
     // squash-and-stretch kick each time more of the answer arrives
     val kick = remember { Animatable(0f) }
@@ -331,6 +344,11 @@ fun BotAvatar(
 
     val tau = (2 * PI).toFloat()
     Canvas(modifier.size(size)) {
+        // read while drawing, so the loops repaint this orb without recomposing anything
+        val phase = phaseS?.value ?: 0f
+        val slow = slowS?.value ?: 0.5f
+        val zz = zzS?.value ?: 0f
+        val glowPulse = glowS?.value ?: 1f
         val a = phase * tau
         val c = controller
         val smile = c?.smile?.value ?: 0f
@@ -347,7 +365,7 @@ fun BotAvatar(
             gazeY = think * (-0.19f + 0.05f * cos(a * 2)) + work * 0.06f - answer * 0.03f + sleep * 0.08f,
             // thinking squints a little; answering is a happy, half-closed look; dozing is nearly shut; "no" squints hard
             open = (1f - 0.15f * think - 0.1f * work - 0.3f * answer - 0.45f * err - 0.82f * sleep) *
-                (if (think > 0.5f || work > 0.5f) blink(phase) else if (sleep > 0.5f) 1f else blink(slow)),
+                (if (think > 0.5f || work > 0.5f) blink(phase) else if (sleep > 0.5f) 1f else (1f - idleBlink.value)),
             scaleX = 1f + 0.04f * think * sin(a) + 0.09f * kick.value +
                 0.07f * squash + 0.12f * jelly + 0.14f * crouch - 0.05f * hopUp - 0.02f * sleep * breathe,
             scaleY = 1f + 0.04f * think * sin(a) - 0.09f * kick.value - 0.17f * jelly - 0.07f * squash - 0.16f * crouch + 0.1f * hopUp + 0.035f * sleep * breathe,
@@ -356,7 +374,7 @@ fun BotAvatar(
             rotation = (c?.roll?.value ?: 0f) + shakeX * 40f,
             smile = smile,
             sleep = sleep,
-            zPhase = zz,
+            zPhase = if (looping) zz else 0.35f,
             glow = (0.55f * think + 0.4f * work + 0.15f * answer + 0.18f * smile) * glowPulse,
             shimmer = 0.9f * think + 0.7f * work,
             shimmerAngle = a * (if (work > think) 2f else 1f) - (PI / 2).toFloat(),

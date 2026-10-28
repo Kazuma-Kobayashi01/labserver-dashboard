@@ -77,5 +77,9 @@ private val RoundShapes = Shapes(
 @Composable
 fun LabLinkTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val colors = if (dark) DarkColors else LightColors
-    MaterialTheme(colorScheme = colors, shapes = RoundShapes, typography = LabTypography, content = content)
+    MaterialTheme(colorScheme = colors, shapes = RoundShapes, typography = LabTypography) {
+        // text and icons drawn straight on the glass surfaces (not inside a Material Surface) take the theme's ink too,
+        // instead of the black that LocalContentColor falls back to, which vanished in dark mode
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides colors.onSurface, content = content)
+    }
 }

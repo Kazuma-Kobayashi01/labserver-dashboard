@@ -1,4 +1,5 @@
 [versions]
+backdrop = "2.0.1"
 agp = "9.4.1"
 kotlin = "2.4.21"
 composeBom = "2026.09.00"
@@ -11,6 +12,8 @@ coroutines = "1.11.0"
 serialization = "1.12.0"
 
 [libraries]
+# Liquid Glass for Compose (backdrop blur, lens refraction, highlights): https://github.com/Kyant0/AndroidLiquidGlass
+backdrop = { module = "io.github.kyant0:backdrop", version.ref = "backdrop" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }

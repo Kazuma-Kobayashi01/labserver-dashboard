@@ -127,7 +127,7 @@ fun BotPickerSheet(
             val full = sandboxCount >= limit
             Row(
                 Modifier.fillMaxWidth().padding(top = 6.dp).height(52.dp).pressable(onNew).clip(RoundedCornerShape(50))
-                    .background(if (full) androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)) else bubbleBrush(MaterialTheme.colorScheme.primary, isDark())),
+                    .background(if (full) androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)) else bubbleBrush(Color(0xFF5546E0), isDark())),
                 horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
             ) {
                 val ink = if (full) MaterialTheme.colorScheme.onSurfaceVariant else Color.White
@@ -170,18 +170,19 @@ fun BotEditorDialog(
         // the page glows in the colour being picked, so a change of colour shows at once
         AuroraBackground(Color(color), Modifier.fillMaxSize()) {
             Column(Modifier.systemBarsPadding().imePadding()) {
-                TopAppBar(
-                    title = { Text(stringResource(if (initial == null) R.string.bot_editor_new else R.string.bot_editor_edit)) },
-                    navigationIcon = { IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_cancel)) } },
-                    actions = {
-                        TextButton(enabled = !saving, onClick = {
+                // a round glass close button, the title, and the save pill
+                Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    GlassIconButton(Icons.Rounded.Close, stringResource(R.string.common_cancel), onDismiss)
+                    Text(
+                        stringResource(if (initial == null) R.string.bot_editor_new else R.string.bot_editor_edit),
+                        style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.weight(1f).padding(horizontal = 14.dp),
+                    )
+                    PillButton(enabled = !saving, kind = PillKind.Primary, onClick = {
                             if (name.isBlank()) showError = true
                             else onSave((initial ?: Bot(name = name)).copy(name = name.trim(), role = role.trim(), systemPrompt = prompt.trim(), color = color, modelProvider = pick.provider, modelId = pick.model, reasoning = pick.reasoning))
                         }) { Text(stringResource(if (saving) R.string.bot_saving else R.string.common_save)) }
-                    },
-                    windowInsets = WindowInsets(0),
-                    colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-                )
+                }
                 Column(
                     Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -240,18 +241,18 @@ fun BotEditorDialog(
                         }
                     }
 
-                    OutlinedTextField(
+                    LabTextField(
                         name, { name = if (sandbox) it.take(40) else it; showError = false },
                         label = { Text(stringResource(R.string.bot_name)) },
                         isError = showError, supportingText = if (showError) ({ Text(stringResource(R.string.bot_name_required)) }) else null,
                         singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(),
                     )
-                    OutlinedTextField(
+                    LabTextField(
                         role, { role = if (sandbox) it.take(200) else it },
                         label = { Text(stringResource(R.string.bot_role)) },
                         singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(),
                     )
-                    OutlinedTextField(
+                    LabTextField(
                         prompt, { prompt = if (sandbox) it.take(8000) else it },
                         label = { Text(stringResource(R.string.bot_prompt)) },
                         supportingText = { Text(stringResource(if (sandbox) R.string.bot_prompt_hint_sandbox else R.string.bot_prompt_hint)) },
@@ -279,17 +280,15 @@ fun BotEditorDialog(
                                     Text(stringResource(R.string.bot_markdown), style = MaterialTheme.typography.bodyLarge)
                                     Text(stringResource(R.string.bot_markdown_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                androidx.compose.material3.Switch(checked = markdown, onCheckedChange = { markdown = it; prefs.setMarkdown(initial.id, it) })
+                                LabSwitch(checked = markdown, onCheckedChange = { markdown = it; prefs.setMarkdown(initial.id, it) })
                             }
                         }
                     }
 
                     if (initial != null && canDelete) {
-                        OutlinedButton(
-                            onClick = { confirmDelete = true },
-                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                            enabled = !saving,
+                        PillButton(
+                            onClick = { confirmDelete = true }, kind = PillKind.Danger,
+                            modifier = Modifier.fillMaxWidth().height(52.dp), enabled = !saving,
                         ) { Text(stringResource(R.string.bot_delete)) }
                     }
                     Spacer(Modifier.height(16.dp))
@@ -305,12 +304,12 @@ fun BotEditorDialog(
         )
     }
     if (confirmDelete) {
-        AlertDialog(
+        LabAlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text(stringResource(R.string.bot_delete)) },
             text = { Text(if (sandbox) stringResource(R.string.bot_delete_sandbox_confirm, trashDays) else stringResource(R.string.bot_delete_confirm)) },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text(stringResource(R.string.common_ok)) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_cancel)) } },
+            confirmButton = { PillButton(onClick = { confirmDelete = false; onDelete() }) { Text(stringResource(R.string.common_ok)) } },
+            dismissButton = { PillButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
 }

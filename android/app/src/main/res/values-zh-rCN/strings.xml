@@ -268,4 +268,17 @@
     <string name="approval_hint">你回答之前不会执行。</string>
     <string name="approval_notify_title">%1$s 在等你确认</string>
     <string name="approval_channel">操作确认</string>
+    <string name="web_forward">前进</string>
+    <string name="web_ssl_title">证书不受信任</string>
+    <string name="web_ssl_text">%1$s 使用的证书手机不信任（家里自签名证书常见这种情况）。流量仍在隧道内传输。要继续吗？</string>
+    <string name="web_ssl_go">继续访问</string>
+    <string name="web_downloading">正在下载 %1$s…</string>
+    <string name="web_downloaded">已保存 %1$s 到下载</string>
+    <string name="web_download_failed">下载 %1$s 失败</string>
+    <string name="web_error_hint">检查连接后重新加载。</string>
+    <string name="tool_command">运行命令</string>
+    <string name="tool_running">运行中…</string>
+    <string name="tool_exit">退出码 %1$d</string>
+    <string name="tool_no_output">（没有输出）</string>
+    <string name="tool_copy">复制命令</string>
 </resources>

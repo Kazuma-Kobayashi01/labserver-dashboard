@@ -1,5 +1,7 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.ui.layout.onSizeChanged
+import com.kyant.backdrop.backdrops.layerBackdrop
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
@@ -122,6 +124,7 @@ import com.labserver.lablink.data.isSandbox
 import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.ChatMessage
 import com.labserver.lablink.data.ReplyPart
+import com.labserver.lablink.data.ToolRun
 import com.labserver.lablink.data.replyText
 import com.labserver.lablink.data.splitReply
 import com.labserver.lablink.labApp
@@ -196,42 +199,101 @@ fun ChatScreen(
         wasStreaming = ui.streaming
     }
 
-    // every bot lights the screen with its own colour: an aurora drifting behind floating glass controls
-    androidx.compose.runtime.CompositionLocalProvider(LocalAccent provides botColor) {
-    // the lights drift while there is something to look at (the empty hero, a reply coming in); a quiet chat draws no frames
-    AuroraBackground(botColor, Modifier.fillMaxSize(), alive = ui.messages.isEmpty() || ui.streaming) {
-    Column(Modifier.fillMaxSize().imePadding()) {
-        // the top bar floats: a round menu button, the bot capsule in the middle, the chat's actions on the right
-        Box(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp)) {
-            GlassIconButton(Icons.Rounded.Menu, null, onOpenDrawer, Modifier.align(Alignment.CenterStart), dot = tunnelDotColor(tunnel))
-            Row(
-                Modifier.align(Alignment.Center).widthIn(max = 230.dp).pressable { showPicker = true }
-                    .glass(RoundedCornerShape(50), elevation = 8.dp, glow = botColor)
-                    .padding(start = 6.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // the orb in the bar is alive too: it fidgets now and then while nothing is happening
-                val barOrb = rememberOrbController()
-                BotAvatar(32.dp, color = botColor, mood = liveMood, talk = (live?.content?.length ?: 0) / 16, alive = true, controller = barOrb)
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f, fill = false)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(ui.bot.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                        if (ui.bot.isSandbox) {
-                            Spacer(Modifier.width(5.dp))
-                            Box(Modifier.size(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiary))
+    // every bot lights the screen with its own colour. The aurora and the messages are one layer, recorded as the
+    // backdrop; the top bar and the composer float over it as liquid glass that blurs and bends what scrolls beneath
+    val backdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var topPx by remember { mutableStateOf(0) }
+    var bottomPx by remember { mutableStateOf(0) }
+    val topPad = with(density) { topPx.toDp() }
+    val bottomPad = with(density) { bottomPx.toDp() }
+    androidx.compose.runtime.CompositionLocalProvider(LocalAccent provides botColor, LocalBackdrop provides backdrop, LocalTilt provides rememberTilt()) {
+    Box(Modifier.fillMaxSize().imePadding()) {
+        // the lights hold still: anything moving in this layer would make all the glass above it re-render every frame
+        AuroraBackground(botColor, Modifier.fillMaxSize().layerBackdrop(backdrop), alive = false) {
+            Box(Modifier.fillMaxSize()) {
+                if (ui.messages.isEmpty()) {
+                    Box(Modifier.fillMaxSize().padding(top = topPad, bottom = bottomPad)) { EmptyState(ui.bot, onSuggest = { app.chat.send(it) }) }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        reverseLayout = true,
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPad + 8.dp, bottom = bottomPad + 12.dp),
+                    ) {
+                        val msgs = ui.messages
+                        // the question the bot is waiting on sits under its reply (the list runs bottom up)
+                        ui.approval?.let { req ->
+                            item(key = "approval-${req.requestId}-${req.runId}") {
+                                ApprovalCard(req, busy = ui.answering, onAnswer = app.chat::answerApproval, modifier = Modifier.animateItem().padding(start = 34.dp))
+                            }
+                        }
+                        items(msgs.asReversed(), key = { it.id }) { m ->
+                            val last = m.id == msgs.last().id
+                            if (m.role == "user") UserBubble(
+                                m, botColor, { viewing = it },
+                                onRetry = app.chat::regenerate,
+                                onCopy = { copyText(ctx, m.content) },
+                                onEdit = { app.chat.retract(m.id) { text -> input = if (input.isBlank()) text else text + "\n" + input } },
+                                modifier = Modifier.animateItem(),
+                            )
+                            else BotReply(
+                                m, ui.bot, thinking = last && ui.streaming, working = last && ui.working,
+                                canRegenerate = last && !ui.streaming, onRegenerate = app.chat::regenerate,
+                                speaking = speaking == m.id,
+                                onSpeak = { app.speaker.toggle(m.id, m.content) { android.os.Handler(android.os.Looper.getMainLooper()).post { android.widget.Toast.makeText(ctx, ttsUnavailable, android.widget.Toast.LENGTH_SHORT).show() } } },
+                                onShare = { shareText(ctx, ui.bot.name, m.content) },
+                                modifier = Modifier.animateItem(),
+                            )
                         }
                     }
-                    // the open chat's title, or what the bot is (as ChatGPT shows the model under its name)
-                    Text(
-                        ui.conversation?.title?.takeIf { it.isNotBlank() } ?: stringResource(if (ui.bot.isSandbox) R.string.bot_sandbox_label else R.string.bot_new_chat),
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
                 }
-                Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.bots_title), modifier = Modifier.padding(start = 2.dp).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Row(Modifier.align(Alignment.CenterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
+        }
+
+        // scroll edge effect (as in iOS 26): what slides under the bars fades into the background instead of showing
+        // through in pieces between the buttons; the glass itself still refracts the unfaded layer
+        val edge = MaterialTheme.colorScheme.surface
+        Column(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().onSizeChanged { topPx = it.height }
+                .background(Brush.verticalGradient(0f to edge.copy(alpha = 0.97f), 0.72f to edge.copy(alpha = 0.9f), 1f to edge.copy(alpha = 0f)))
+                .padding(bottom = 18.dp),
+        ) {
+            // the top bar floats: a round menu button, the bot capsule in the middle, the chat's actions on the right
+        // one row: the menu, the bot capsule in the space left between the buttons (never under them), the actions
+        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            GlassIconButton(Icons.Rounded.Menu, null, onOpenDrawer, dot = tunnelDotColor(tunnel))
+            Box(Modifier.weight(1f).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                Row(
+                    Modifier.widthIn(max = 230.dp).liquidButton(RoundedCornerShape(50), onClick = { showPicker = true }, glow = botColor)
+                        .padding(start = 6.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // the orb in the bar is alive too: it fidgets now and then while nothing is happening
+                    val barOrb = rememberOrbController()
+                    BotAvatar(32.dp, color = botColor, mood = liveMood, talk = (live?.content?.length ?: 0) / 16, alive = false, controller = barOrb)
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f, fill = false)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(ui.bot.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            if (ui.bot.isSandbox) {
+                                Spacer(Modifier.width(5.dp))
+                                Box(Modifier.size(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiary))
+                            }
+                        }
+                        // the open chat's title, or what the bot is (as ChatGPT shows the model under its name)
+                        Text(
+                            ui.conversation?.title?.takeIf { it.isNotBlank() } ?: stringResource(if (ui.bot.isSandbox) R.string.bot_sandbox_label else R.string.bot_new_chat),
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.bots_title), modifier = Modifier.padding(start = 2.dp).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // a new chat keeps this one in the history (the drawer), as in ChatGPT
                 GlassIconButton(Icons.Rounded.EditNote, stringResource(R.string.bot_new_chat), app.chat::newConversation, enabled = ui.messages.isNotEmpty())
                 val open = ui.conversation
@@ -246,81 +308,48 @@ fun ChatScreen(
             }
         }
 
-        AnimatedVisibility(tunnel !is TunnelState.On, enter = expandVertically(), exit = shrinkVertically()) {
-            OfflineBanner(tunnel, onConnect)
+            AnimatedVisibility(tunnel !is TunnelState.On, enter = expandVertically(), exit = shrinkVertically()) {
+                OfflineBanner(tunnel, onConnect)
+            }
+
         }
 
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (ui.messages.isEmpty()) {
-                EmptyState(ui.bot, onSuggest = { app.chat.send(it) })
-            } else {
-                LazyColumn(
-                    state = listState,
-                    reverseLayout = true,
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().onSizeChanged { bottomPx = it.height }
+                .background(Brush.verticalGradient(0f to edge.copy(alpha = 0f), 0.35f to edge.copy(alpha = 0.7f), 1f to edge.copy(alpha = 0.9f)))
+                .padding(top = 18.dp),
+        ) {
+                // jump back to the newest message after scrolling up
+                androidx.compose.animation.AnimatedVisibility(
+                    jumpVisible, modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 6.dp),
+                    enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut(),
                 ) {
-                    val msgs = ui.messages
-                    // the question the bot is waiting on sits under its reply (the list runs bottom up)
-                    ui.approval?.let { req ->
-                        item(key = "approval-${req.requestId}-${req.runId}") {
-                            ApprovalCard(req, busy = ui.answering, onAnswer = app.chat::answerApproval, modifier = Modifier.animateItem().padding(start = 34.dp))
-                        }
-                    }
-                    items(msgs.asReversed(), key = { it.id }) { m ->
-                        val last = m.id == msgs.last().id
-                        if (m.role == "user") UserBubble(
-                            m, botColor, { viewing = it },
-                            onRetry = app.chat::regenerate,
-                            onCopy = { copyText(ctx, m.content) },
-                            onEdit = { app.chat.retract(m.id) { text -> input = if (input.isBlank()) text else text + "\n" + input } },
-                            modifier = Modifier.animateItem(),
-                        )
-                        else BotReply(
-                            m, ui.bot, thinking = last && ui.streaming, working = last && ui.working,
-                            canRegenerate = last && !ui.streaming, onRegenerate = app.chat::regenerate,
-                            speaking = speaking == m.id,
-                            onSpeak = { app.speaker.toggle(m.id, m.content) { android.os.Handler(android.os.Looper.getMainLooper()).post { android.widget.Toast.makeText(ctx, ttsUnavailable, android.widget.Toast.LENGTH_SHORT).show() } } },
-                            onShare = { shareText(ctx, ui.bot.name, m.content) },
-                            modifier = Modifier.animateItem(),
-                        )
-                    }
+                    GlassIconButton(Icons.Rounded.ArrowDownward, null, { scope.launch { listState.animateScrollToItem(0) } }, size = 42.dp)
                 }
+            ui.error?.let { err ->
+                ErrorStrip(
+                    err,
+                    onDismiss = app.chat::dismissError,
+                    onConnect = { onConnect(); app.chat.dismissError() },
+                    onOpenSettings = { onOpenSettings(); app.chat.dismissError() },
+                )
             }
-            // jump back to the newest message after scrolling up
-            androidx.compose.animation.AnimatedVisibility(
-                jumpVisible, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
-                enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut(),
-            ) {
-                GlassIconButton(Icons.Rounded.ArrowDownward, null, { scope.launch { listState.animateScrollToItem(0) } }, size = 42.dp)
-            }
-        }
 
-        ui.error?.let { err ->
-            ErrorStrip(
-                err,
-                onDismiss = app.chat::dismissError,
-                onConnect = { onConnect(); app.chat.dismissError() },
-                onOpenSettings = { onOpenSettings(); app.chat.dismissError() },
+            Composer(
+                hint = stringResource(R.string.bot_hint, cjkSpaced(ui.bot.name)),
+                value = input,
+                onValueChange = { input = it },
+                streaming = ui.streaming,
+                onSend = send,
+                onStop = app.chat::stop,
+                onVoice = voice,
+                modelLabel = pickLabel(ui.catalog, ui.effectivePick),
+                onModel = { showModel = true },
+                pending = ui.pending, canSend = ui.canSend,
+                onAttach = { showAttach = true },
+                onRemove = app.chat::removePending,
             )
         }
-
-        Composer(
-            hint = stringResource(R.string.bot_hint, cjkSpaced(ui.bot.name)),
-            value = input,
-            onValueChange = { input = it },
-            streaming = ui.streaming,
-            onSend = send,
-            onStop = app.chat::stop,
-            onVoice = voice,
-            modelLabel = pickLabel(ui.catalog, ui.effectivePick),
-            onModel = { showModel = true },
-            pending = ui.pending, canSend = ui.canSend,
-            onAttach = { showAttach = true },
-            onRemove = app.chat::removePending,
-        )
-    }
     }
     }
 
@@ -363,7 +392,7 @@ fun ChatScreen(
 @Composable
 private fun OfflineBanner(tunnel: TunnelState, onConnect: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).glass(RoundedCornerShape(50), elevation = 4.dp)
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).liquidGlass(RoundedCornerShape(50), tint = 0.45f)
             .padding(start = 16.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -409,8 +438,15 @@ private fun EmptyState(bot: Bot, onSuggest: (String) -> Unit) {
         Icons.Rounded.Lightbulb to R.string.bot_suggest_3,
         Icons.Rounded.Event to R.string.bot_suggest_4,
     )
-    val loop = androidx.compose.animation.core.rememberInfiniteTransition(label = "halo")
-    val ring by loop.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(3600, easing = androidx.compose.animation.core.LinearEasing)), label = "ring")
+    // the rings breathe out a few times when the screen opens, then rest (an endless loop would keep the GPU busy)
+    val ringAnim = remember(bot.id) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(bot.id) {
+        repeat(3) {
+            ringAnim.snapTo(0f)
+            ringAnim.animateTo(1f, androidx.compose.animation.core.tween(3600, easing = androidx.compose.animation.core.LinearEasing))
+        }
+    }
+    val ring = ringAnim.value
     var shown by remember(bot.id) { mutableStateOf(false) }
     LaunchedEffect(bot.id) { shown = true }
     Column(
@@ -431,7 +467,7 @@ private fun EmptyState(bot: Bot, onSuggest: (String) -> Unit) {
         }
         GradientText(
             stringResource(R.string.bot_hello_named, cjkSpaced(bot.name)),
-            listOf(MaterialTheme.colorScheme.onSurface, lerp(botColor, MaterialTheme.colorScheme.onSurface, 0.15f)),
+            listOf(MaterialTheme.colorScheme.onSurface, accentInk(lerp(botColor, MaterialTheme.colorScheme.onSurface, 0.15f))),
             MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
             textAlign = TextAlign.Center,
         )
@@ -461,8 +497,8 @@ private fun EmptyState(bot: Bot, onSuggest: (String) -> Unit) {
                             .padding(14.dp),
                         verticalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Box(Modifier.size(34.dp).clip(CircleShape).background(botColor.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                            Icon(icon, contentDescription = null, tint = botColor, modifier = Modifier.size(19.dp))
+                        Box(Modifier.size(34.dp).clip(CircleShape).background(accentInk(botColor).copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                            Icon(icon, contentDescription = null, tint = accentInk(botColor), modifier = Modifier.size(19.dp))
                         }
                         Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.padding(top = 12.dp))
                     }
@@ -541,7 +577,7 @@ private fun BotReply(
                 ) {
                     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Psychology, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(bot.color))
+                            Icon(Icons.Rounded.Psychology, contentDescription = null, modifier = Modifier.size(18.dp), tint = accentInk(Color(bot.color)))
                             Text(
                                 if (m.thinkingMs >= 1000) stringResource(R.string.bot_thought_for, (m.thinkingMs / 1000).toInt()) else stringResource(R.string.bot_thought),
                                 style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 6.dp),
@@ -560,9 +596,13 @@ private fun BotReply(
                 }
             }
             when {
-                m.content.isNotBlank() -> {
-                    ReplyBody(m.content, bot.id)
-                    if (!thinking) ReplyActions(replyText(m.content), canRegenerate, onRegenerate, speaking, onSpeak, onShare)
+                m.content.isNotBlank() || m.tools.isNotEmpty() -> {
+                    ReplyBody(m.content, bot.id, m.tools)
+                    // between a command and the next words, say it is still at work
+                    if (thinking && m.content.length <= (m.tools.maxOfOrNull { it.at } ?: -1)) {
+                        Box(Modifier.padding(top = 10.dp)) { ShimmerText(stringResource(if (working) R.string.bot_working else R.string.bot_thinking)) }
+                    }
+                    if (!thinking && m.content.isNotBlank()) ReplyActions(replyText(m.content), canRegenerate, onRegenerate, speaking, onSpeak, onShare)
                 }
                 thinking -> ShimmerText(stringResource(if (working) R.string.bot_working else R.string.bot_thinking))
             }
@@ -582,7 +622,7 @@ private fun ErrorStrip(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: ()
         BotEvent.Error.Kind.Other -> err.detail
     }
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).glass(RoundedCornerShape(20.dp), elevation = 4.dp, strong = true)
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).liquidGlass(RoundedCornerShape(20.dp), tint = 0.6f)
             .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -590,9 +630,9 @@ private fun ErrorStrip(err: BotEvent.Error, onDismiss: () -> Unit, onConnect: ()
         Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.padding(start = 12.dp).size(20.dp))
         Text(text, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(start = 10.dp, top = 10.dp, bottom = 10.dp))
         when (err.kind) {
-            BotEvent.Error.Kind.NotConnected -> TextButton(onClick = onConnect) { Text(stringResource(R.string.link_connect)) }
-            BotEvent.Error.Kind.NoKey, BotEvent.Error.Kind.BadUrl, BotEvent.Error.Kind.Auth -> TextButton(onClick = onOpenSettings) { Text(stringResource(R.string.nav_settings)) }
-            else -> TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_ok)) }
+            BotEvent.Error.Kind.NotConnected -> PillButton(onClick = onConnect) { Text(stringResource(R.string.link_connect)) }
+            BotEvent.Error.Kind.NoKey, BotEvent.Error.Kind.BadUrl, BotEvent.Error.Kind.Auth -> PillButton(onClick = onOpenSettings) { Text(stringResource(R.string.nav_settings)) }
+            else -> PillButton(onClick = onDismiss) { Text(stringResource(R.string.common_ok)) }
         }
     }
 }
@@ -606,16 +646,18 @@ private fun Composer(
     val accent = LocalAccent.current
     Box(
         Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp)
-            .glass(RoundedCornerShape(28.dp), elevation = 16.dp, strong = true, glow = accent),
+            .liquidGlass(RoundedCornerShape(28.dp), tint = 0.42f, blur = 4.dp, glow = accent),
     ) {
-      Column {
+      // every round control is 40 dp and sits 8 dp from the edges, so its outline runs along the 28 dp corner it is in
+      // (8 + 20 = 28): send in the top right corner, attach in the bottom left, the microphone beside it
+      Column(Modifier.padding(8.dp)) {
         // what is attached to the message being written, as in Claude and opencode
         androidx.compose.animation.AnimatedVisibility(
             pending.isNotEmpty(),
             enter = androidx.compose.animation.expandVertically(spring(dampingRatio = 0.8f, stiffness = 400f)) + androidx.compose.animation.fadeIn(),
             exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
-        ) { PendingRow(pending, onRemove, Modifier.padding(top = 8.dp)) }
-        Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 4.dp), verticalAlignment = Alignment.Bottom) {
+        ) { PendingRow(pending, onRemove, Modifier.padding(bottom = 4.dp)) }
+        Row(verticalAlignment = Alignment.Top) {
             TextField(
                 value = value,
                 onValueChange = onValueChange,
@@ -631,58 +673,58 @@ private fun Composer(
                     disabledContainerColor = Color.Transparent,
                 ),
             )
-            // nothing typed: the button listens instead (as in ChatGPT)
-            val listen = !streaming && value.isBlank() && pending.none { it.state == Pending.State.Ready }
-            val enabled = streaming || listen || (canSend && (value.isNotBlank() || pending.any { it.state == Pending.State.Ready }))
+            // send, or stop while a reply streams; with nothing to send it rests, dimmed
+            val enabled = streaming || (canSend && (value.isNotBlank() || pending.any { it.state == Pending.State.Ready }))
             // circle -> rounded square, on a spring
             val corner by animateDpAsState(
-                if (streaming) 14.dp else 22.dp,
+                if (streaming) 12.dp else 20.dp,
                 animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
                 label = "send shape",
             )
-            // the send button glows in the bot's colours; empty, it is a quiet microphone; streaming, a stop square
-            val hot = enabled && !listen
             val shape = RoundedCornerShape(corner)
             val dark = isDark()
             Box(
-                Modifier.padding(bottom = 6.dp).size(44.dp).pressable { if (enabled) (when { streaming -> onStop; listen -> onVoice; else -> onSend })() }
-                    .then(if (hot) Modifier.shadow(10.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
+                Modifier.size(Control).pressable { if (enabled) (if (streaming) onStop else onSend)() }
+                    .then(if (enabled) Modifier.shadow(10.dp, shape, ambientColor = accent, spotColor = accent) else Modifier)
                     .clip(shape)
-                    .then(
-                        if (hot) Modifier.background(bubbleBrush(accent, dark))
-                        else Modifier.background(MaterialTheme.colorScheme.onSurface.copy(alpha = if (listen) 0.07f else 0.05f)),
-                    ),
+                    .background(if (enabled) bubbleBrush(accent, dark) else androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))),
                 contentAlignment = Alignment.Center,
             ) {
-                val ink = if (hot) onAccent(accent) else MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.8f else 0.3f)
-                AnimatedContent(if (streaming) 0 else if (listen) 1 else 2, label = "send icon") { k ->
-                    when (k) {
-                        0 -> Box(Modifier.size(14.dp).background(ink, RoundedCornerShape(3.dp)))
-                        1 -> Icon(Icons.Rounded.Mic, contentDescription = stringResource(R.string.voice_input), tint = ink)
-                        else -> Icon(Icons.Rounded.ArrowUpward, contentDescription = null, tint = ink)
-                    }
+                val ink = if (enabled) onAccent(accent) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                AnimatedContent(streaming, label = "send icon") { stop ->
+                    if (stop) Box(Modifier.size(14.dp).background(ink, RoundedCornerShape(3.dp)))
+                    else Icon(Icons.Rounded.ArrowUpward, contentDescription = null, tint = ink)
                 }
             }
         }
-        // under the text: the attach button, and the model and thinking level of this chat as a small tag
-        Row(Modifier.padding(start = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(32.dp).pressable(onAttach).clip(CircleShape).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
-                contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.attach_title), modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-            Spacer(Modifier.width(8.dp))
+        // the tools: attach, speak, and the model and thinking level of this chat
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ToolButton(Icons.Rounded.Add, stringResource(R.string.attach_title), onAttach)
+            ToolButton(Icons.Rounded.Mic, stringResource(R.string.voice_input), onVoice)
             Row(
-                Modifier.pressable(onModel).clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)).padding(horizontal = 10.dp, vertical = 5.dp),
+                Modifier.height(Control).pressable(onModel).clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)).padding(start = 14.dp, end = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(modelLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))
-                Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.model_title), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(modelLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 200.dp))
+                Icon(Icons.Rounded.ExpandMore, contentDescription = stringResource(R.string.model_title), modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
       }
     }
     Spacer(Modifier.height(0.dp))
+}
+
+/** The size of the composer's round controls (see the note on their placement in [Composer]). */
+private val Control = 40.dp
+
+/** A quiet round tool in the composer. */
+@Composable
+private fun ToolButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(Control).pressable(onClick).clip(CircleShape).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, contentDescription = label, modifier = Modifier.size(21.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
 /**
@@ -741,14 +783,31 @@ private fun copyText(ctx: android.content.Context, text: String) {
 
 /** The reply as it is meant to be seen: Markdown for the words, the pictures in place. */
 @Composable
-private fun ReplyBody(content: String, botId: String) {
-    val parts = remember(content) { splitReply(content) }
+private fun ReplyBody(content: String, botId: String, tools: List<ToolRun> = emptyList()) {
+    // the words, with each command window between the words it came between
+    val pieces = remember(content, tools) { interleave(content, tools) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        for (p in parts) when (p) {
-            is ReplyPart.Text -> SelectionContainer { MarkdownText(p.markdown, MaterialTheme.colorScheme.onSurface) }
-            is ReplyPart.Image -> ReplyImage(p.src, botId, p.alt)
+        for (piece in pieces) when (piece) {
+            is ToolRun -> ToolCard(piece)
+            is ReplyPart.Text -> SelectionContainer { MarkdownText(piece.markdown, MaterialTheme.colorScheme.onSurface) }
+            is ReplyPart.Image -> ReplyImage(piece.src, botId, piece.alt)
         }
     }
+}
+
+/** The reply cut at the places its tools ran: text parts (and pictures) and tool runs, in order. */
+private fun interleave(content: String, tools: List<ToolRun>): List<Any> {
+    if (tools.isEmpty()) return splitReply(content)
+    val out = ArrayList<Any>()
+    var from = 0
+    for (t in tools.sortedBy { it.at }) {
+        val to = t.at.coerceIn(from, content.length)
+        if (to > from) out.addAll(splitReply(content.substring(from, to)).filter { it !is ReplyPart.Text || it.markdown.isNotBlank() })
+        out.add(t)
+        from = to
+    }
+    if (from < content.length) out.addAll(splitReply(content.substring(from)).filter { it !is ReplyPart.Text || it.markdown.isNotBlank() })
+    return out
 }
 
 /** "Thinking…" with a sheen running across it, as in ChatGPT. */

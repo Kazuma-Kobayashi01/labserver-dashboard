@@ -1,5 +1,7 @@
 package com.labserver.lablink.ui
 
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
@@ -132,19 +134,28 @@ fun AppRoot() {
         if (r is ManagerResult.Fail) saveError = managerErrorText(ctx, r)
     }
 
+    // what the sidebar's glass shows through: the whole app behind it
+    val appBackdrop = rememberLayerBackdrop()
+    // the app is recorded for the sidebar's glass only while the sidebar is open or moving
+    val drawerShown = drawer.currentValue == DrawerValue.Open || drawer.targetValue == DrawerValue.Open || drawer.isAnimationRunning
     ModalNavigationDrawer(
         drawerState = drawer,
+        scrimColor = Color.Black.copy(alpha = 0.18f),
         gesturesEnabled = !panelOpen || drawer.isOpen,
         drawerContent = {
             // about four fifths of a phone, so the chat stays in view beside it (as in ChatGPT); the open bot's aurora shows
             // through, the bots are cards, and the places (library, trash, home lab, settings) sit in a bar at the bottom
+            // a floating sidebar (iOS 26): a liquid glass panel held off the screen's edges, blurring the chat behind it
             ModalDrawerSheet(
-                Modifier.width(300.dp),
+                Modifier.width(312.dp),
                 drawerContainerColor = Color.Transparent,
-                drawerShape = RoundedCornerShape(topEnd = 30.dp, bottomEnd = 30.dp),
+                drawerShape = RoundedCornerShape(0.dp),
             ) {
-                AuroraBackground(Color(chat.bot.color), Modifier.fillMaxSize().clip(RoundedCornerShape(topEnd = 30.dp, bottomEnd = 30.dp)), alive = false) {
-                Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                Box(
+                    Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(start = 10.dp, top = 6.dp, bottom = 10.dp)
+                        .liquidGlass(RoundedCornerShape(34.dp), backdrop = appBackdrop.takeIf { drawerShown }, tint = 0.62f, blur = 22.dp, glow = Color(chat.bot.color)),
+                ) {
+                Column(Modifier.fillMaxSize()) {
                     Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         BotHero(40.dp, interactive = false)
                         Spacer(Modifier.width(10.dp))
@@ -211,8 +222,8 @@ fun AppRoot() {
 
                     // the places, one tap away at the bottom
                     Row(
-                        Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp)
-                            .glass(RoundedCornerShape(24.dp), elevation = 8.dp, strong = true).padding(vertical = 6.dp),
+                        Modifier.fillMaxWidth().padding(10.dp)
+                            .clip(RoundedCornerShape(26.dp)).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)).padding(vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                     ) {
                         PlaceButton(Icons.Rounded.PhotoLibrary, stringResource(R.string.nav_library), screen == Screen.Library) { go(Screen.Library) }
@@ -225,8 +236,8 @@ fun AppRoot() {
             }
         },
     ) {
-        AuroraBackground(Color(chat.bot.color), Modifier.fillMaxSize(), alive = false) {
-        Scaffold(snackbarHost = { SnackbarHost(snackbar) }, containerColor = Color.Transparent) { inner ->
+        AuroraBackground(Color(chat.bot.color), Modifier.fillMaxSize().then(if (drawerShown) Modifier.layerBackdrop(appBackdrop) else Modifier), alive = false) {
+        Scaffold(snackbarHost = { SnackbarHost(snackbar) { LabSnackbar(it) } }, containerColor = Color.Transparent) { inner ->
             val ld = androidx.compose.ui.platform.LocalLayoutDirection.current
             fun contentPadding(p: androidx.compose.foundation.layout.PaddingValues) =
                 androidx.compose.foundation.layout.PaddingValues(start = p.calculateStartPadding(ld), end = p.calculateEndPadding(ld), bottom = p.calculateBottomPadding())
@@ -349,6 +360,6 @@ private fun ConnectionPill(state: TunnelState, onToggle: () -> Unit, modifier: M
             Text(stringResource(R.string.home_title), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(tunnelTitle(state), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         }
-        androidx.compose.material3.Switch(checked = state.isUpOrBusy, onCheckedChange = { onToggle() })
+        LabSwitch(checked = state.isUpOrBusy, onCheckedChange = { onToggle() })
     }
 }

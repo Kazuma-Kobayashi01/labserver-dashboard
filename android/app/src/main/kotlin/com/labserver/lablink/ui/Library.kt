@@ -1,5 +1,6 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -76,11 +77,10 @@ import com.labserver.lablink.labApp
 
 @Composable
 private fun FilterRow(filter: LibraryFilter, onChange: (LibraryFilter) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(filter == LibraryFilter.All, { onChange(LibraryFilter.All) }, label = { Text(stringResource(R.string.library_all)) })
-        FilterChip(filter == LibraryFilter.Images, { onChange(LibraryFilter.Images) }, label = { Text(stringResource(R.string.library_images)) })
-        FilterChip(filter == LibraryFilter.Files, { onChange(LibraryFilter.Files) }, label = { Text(stringResource(R.string.library_files)) })
-    }
+    SegmentedPills(
+        listOf(stringResource(R.string.library_all), stringResource(R.string.library_images), stringResource(R.string.library_files)),
+        LibraryFilter.entries.indexOf(filter), { onChange(LibraryFilter.entries[it]) }, modifier,
+    )
 }
 
 /** One square of the library: a picture, or a file with its name; with a tick when picked. */
@@ -119,7 +119,7 @@ private fun LibraryGrid(
     onClick: (LibraryItem) -> Unit, onLongClick: (LibraryItem) -> Unit, modifier: Modifier = Modifier,
 ) {
     if (items.isEmpty()) {
-        Text(stringResource(R.string.library_empty), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier.padding(24.dp))
+        EmptyHint(androidx.compose.material.icons.Icons.Rounded.PhotoLibrary, stringResource(R.string.library_empty), modifier)
         return
     }
     LazyVerticalGrid(
@@ -148,27 +148,19 @@ fun LibraryScreen(onBack: () -> Unit, onSendAgain: (List<String>) -> Unit) {
     fun toggle(item: LibraryItem) { val l = item.attachment.local; picked = if (l in picked) picked - l else picked + l }
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent, scrolledContainerColor = glassFill(strong = true)),
-            title = {
-                if (selecting) Text(stringResource(R.string.library_selected, picked.size), fontWeight = FontWeight.Bold)
-                else Column {
-                    Text(stringResource(R.string.library_title), fontWeight = FontWeight.Bold)
-                    if (ui.library.isNotEmpty()) Text(stringResource(R.string.library_total, ui.library.size, humanSize(ui.library.sumOf { it.attachment.size })), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            },
-            navigationIcon = {
-                IconButton(onClick = { if (selecting) picked = emptySet() else onBack() }) {
-                    Icon(if (selecting) Icons.Rounded.Close else Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.web_back))
-                }
-            },
-            actions = {
-                if (selecting) {
-                    IconButton(onClick = { onSendAgain(picked.toList()); picked = emptySet() }) { Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = stringResource(R.string.library_send_again)) }
-                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.library_delete), tint = MaterialTheme.colorScheme.error) }
-                }
-            },
-            windowInsets = WindowInsets.statusBars,
+        PageHeader(
+            if (selecting) stringResource(R.string.library_selected, picked.size) else stringResource(R.string.library_title),
+            onBack = { if (selecting) picked = emptySet() else onBack() },
+        ) {
+            if (selecting) {
+                GlassIconButton(Icons.AutoMirrored.Rounded.Send, stringResource(R.string.library_send_again), { onSendAgain(picked.toList()); picked = emptySet() })
+                GlassIconButton(Icons.Rounded.Delete, stringResource(R.string.library_delete), { confirmDelete = true })
+            }
+        }
+        if (!selecting && ui.library.isNotEmpty()) Text(
+            stringResource(R.string.library_total, ui.library.size, humanSize(ui.library.sumOf { it.attachment.size })),
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 20.dp, bottom = 8.dp),
         )
         FilterRow(filter, { filter = it; picked = emptySet() }, Modifier.padding(horizontal = 16.dp))
         LibraryGrid(
@@ -179,12 +171,12 @@ fun LibraryScreen(onBack: () -> Unit, onSendAgain: (List<String>) -> Unit) {
     }
     viewing?.let { ImageViewer(it) { viewing = null } }
     if (confirmDelete) {
-        AlertDialog(
+        LabAlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text(stringResource(R.string.library_delete)) },
             text = { Text(stringResource(R.string.library_delete_confirm, picked.size)) },
-            confirmButton = { TextButton(onClick = { app.chat.deleteFromLibrary(picked); picked = emptySet(); confirmDelete = false }) { Text(stringResource(R.string.library_delete), color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_cancel)) } },
+            confirmButton = { PillButton(onClick = { app.chat.deleteFromLibrary(picked); picked = emptySet(); confirmDelete = false }) { Text(stringResource(R.string.library_delete), color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { PillButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
 }
@@ -206,8 +198,8 @@ fun LibraryPickerSheet(onAdd: (List<String>) -> Unit, onDismiss: () -> Unit) {
                 onClick = { item -> val l = item.attachment.local; picked = if (l in picked) picked - l else picked + l },
                 onLongClick = { }, modifier = Modifier.height(360.dp),
             )
-            FilledTonalButton(
-                onClick = { onAdd(picked.toList()); onDismiss() }, enabled = picked.isNotEmpty(),
+            PillButton(
+                onClick = { onAdd(picked.toList()); onDismiss() }, enabled = picked.isNotEmpty(), kind = PillKind.Primary,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(48.dp),
             ) { Text(stringResource(R.string.library_pick, picked.size)) }
         }

@@ -1,5 +1,6 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -65,21 +66,12 @@ fun TrashScreen(connected: Boolean, onBack: () -> Unit, onMessage: (String) -> U
     }
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent, scrolledContainerColor = glassFill(strong = true)),
-            title = { Text(stringResource(R.string.trash_title), fontWeight = FontWeight.Bold) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.web_back)) } },
-            windowInsets = WindowInsets.statusBars,
-        )
+        PageHeader(stringResource(R.string.trash_title), onBack)
         if (!connected) {
             Text(stringResource(R.string.trash_offline), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
         }
         if (ui.trash.isEmpty()) {
-            Text(
-                stringResource(R.string.trash_empty, ui.trashDays),
-                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(24.dp),
-            )
+            EmptyHint(androidx.compose.material.icons.Icons.Rounded.DeleteOutline, stringResource(R.string.trash_empty, ui.trashDays))
         } else {
             LazyColumn(
                 Modifier.fillMaxSize(),
@@ -108,12 +100,12 @@ fun TrashScreen(connected: Boolean, onBack: () -> Unit, onMessage: (String) -> U
     }
 
     purging?.let { t ->
-        AlertDialog(
+        LabAlertDialog(
             onDismissRequest = { purging = null },
             title = { Text(stringResource(R.string.trash_purge)) },
             text = { Text(stringResource(R.string.trash_purge_confirm, t.bot.name)) },
-            confirmButton = { TextButton(onClick = { purging = null; run { app.chat.purgeBot(t.bot.id) } }) { Text(stringResource(R.string.trash_purge), color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { purging = null }) { Text(stringResource(R.string.common_cancel)) } },
+            confirmButton = { PillButton(onClick = { purging = null; run { app.chat.purgeBot(t.bot.id) } }) { Text(stringResource(R.string.trash_purge), color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { PillButton(onClick = { purging = null }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
 }

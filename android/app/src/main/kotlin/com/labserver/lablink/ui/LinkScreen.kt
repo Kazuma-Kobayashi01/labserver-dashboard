@@ -116,15 +116,8 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
     val importDone = stringResource(R.string.link_import_done)
     val importEmpty = stringResource(R.string.link_import_empty)
 
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Column(Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection)) {
-        LargeTopAppBar(
-            colors = androidx.compose.material3.TopAppBarDefaults.largeTopAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent, scrolledContainerColor = glassFill(strong = true)),
-            title = { Text(stringResource(R.string.nav_settings), fontWeight = FontWeight.Bold) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.web_back)) } },
-            scrollBehavior = scroll,
-            windowInsets = WindowInsets.statusBars,
-        )
+    Column(Modifier.fillMaxSize()) {
+        PageHeader(stringResource(R.string.nav_settings), onBack)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -145,7 +138,7 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
                         Text(stringResource(R.string.link_auto), style = MaterialTheme.typography.titleSmall)
                         Text(stringResource(R.string.link_auto_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    androidx.compose.material3.Switch(checked = auto, onCheckedChange = { auto = it; prefs.autoConnect = it })
+                    LabSwitch(checked = auto, onCheckedChange = { auto = it; prefs.autoConnect = it })
                 }
             }
 
@@ -160,7 +153,7 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
                         Toast.makeText(ctx, copiedMsg, Toast.LENGTH_SHORT).show()
                     }) { Icon(Icons.Rounded.ContentCopy, contentDescription = stringResource(R.string.link_copy)) }
                 }
-                TextButton(onClick = { confirmRegen = true }) { Text(stringResource(R.string.link_regen)) }
+                PillButton(onClick = { confirmRegen = true }) { Text(stringResource(R.string.link_regen)) }
             }
 
             Section(stringResource(R.string.link_hub)) {
@@ -170,7 +163,7 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
                 Field(tcpUrl, { tcpUrl = it }, stringResource(R.string.link_tcp_url), placeholder = "wss://host:9443")
                 Field(tcpPrefix, { tcpPrefix = it }, stringResource(R.string.link_tcp_prefix), secret = true)
                 Text(stringResource(R.string.link_tcp_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = {
+                PillButton(onClick = {
                     val clip = ctx.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty()
                     val p = parseWgQuick(clip)
                     if (p.isEmpty) {
@@ -188,7 +181,7 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
                     }
                 }) { Text(stringResource(R.string.link_import)) }
 
-                TextButton(onClick = { advanced = !advanced }) {
+                PillButton(onClick = { advanced = !advanced }) {
                     Text(stringResource(R.string.link_advanced))
                     Icon(if (advanced) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = null)
                 }
@@ -219,23 +212,23 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
     }
 
     if (confirmRegen) {
-        AlertDialog(
+        LabAlertDialog(
             onDismissRequest = { confirmRegen = false },
             title = { Text(stringResource(R.string.link_regen)) },
             text = { Text(stringResource(R.string.link_regen_confirm)) },
             confirmButton = {
-                TextButton(onClick = {
+                PillButton(onClick = {
                     app.tunnel.disconnect()
                     app.tunnel.regenerateKey()
                     pub = app.tunnel.publicKey()
                     confirmRegen = false
                 }) { Text(stringResource(R.string.common_ok)) }
             },
-            dismissButton = { TextButton(onClick = { confirmRegen = false }) { Text(stringResource(R.string.common_cancel)) } },
+            dismissButton = { PillButton(onClick = { confirmRegen = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
     if (showLog) {
-        AlertDialog(
+        LabAlertDialog(
             onDismissRequest = { showLog = false },
             title = { Text(stringResource(R.string.link_diagnostics)) },
             text = {
@@ -244,7 +237,7 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
                         modifier = Modifier.verticalScroll(rememberScrollState()))
                 }
             },
-            confirmButton = { TextButton(onClick = { showLog = false }) { Text(stringResource(R.string.common_ok)) } },
+            confirmButton = { PillButton(onClick = { showLog = false }) { Text(stringResource(R.string.common_ok)) } },
         )
     }
 }
@@ -265,7 +258,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun Field(value: String, onChange: (String) -> Unit, label: String, secret: Boolean = false, placeholder: String? = null, error: String? = null) {
-    OutlinedTextField(
+    LabTextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label) },

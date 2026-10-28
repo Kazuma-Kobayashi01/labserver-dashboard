@@ -104,11 +104,11 @@ fun ConnectionCard(state: TunnelState, onToggle: () -> Unit, modifier: Modifier 
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
-                Switch(checked = state.isUpOrBusy, onCheckedChange = { onToggle() })
+                LabSwitch(checked = state.isUpOrBusy, onCheckedChange = { onToggle() })
             }
             if (detail.isNotEmpty()) Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = if (compact) 1 else 4)
             if (onShowLog != null && (state is TunnelState.Failed || waitingLong)) {
-                TextButton(onClick = onShowLog) { Text(stringResource(R.string.link_diagnostics)) }
+                PillButton(onClick = onShowLog) { Text(stringResource(R.string.link_diagnostics)) }
             }
         }
     }

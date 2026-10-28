@@ -1,5 +1,6 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -69,7 +70,7 @@ fun ApprovalCard(req: ApprovalRequest, busy: Boolean, onAnswer: (String) -> Unit
 
     Surface(
         shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = if (isDark()) MaterialTheme.colorScheme.surfaceContainerLow else Color.White,
         modifier = modifier.fillMaxWidth().border(1.dp, accent.copy(alpha = 0.45f), RoundedCornerShape(22.dp)),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -89,20 +90,17 @@ fun ApprovalCard(req: ApprovalRequest, busy: Boolean, onAnswer: (String) -> Unit
             // the exact command, as it would run
             Box(
                 Modifier.fillMaxWidth().heightIn(max = 140.dp).clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .background(codePalette().bar)
                     .verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState())
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
                 Text(req.command.ifBlank { "—" }, fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 18.sp)
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if ("once" in req.choices) Button(
-                    onClick = { onAnswer("once") }, enabled = !busy,
-                    colors = if (danger) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors(),
-                ) { Text(stringResource(R.string.approval_once)) }
-                if ("session" in req.choices) FilledTonalButton(onClick = { onAnswer("session") }, enabled = !busy) { Text(stringResource(R.string.approval_session)) }
-                OutlinedButton(onClick = { onAnswer("deny") }, enabled = !busy) { Text(stringResource(R.string.approval_deny)) }
-                if ("always" in req.choices) TextButton(onClick = { onAnswer("always") }, enabled = !busy) { Text(stringResource(R.string.approval_always)) }
+                if ("once" in req.choices) PillButton(onClick = { onAnswer("once") }, enabled = !busy, kind = if (danger) PillKind.Danger else PillKind.Primary) { Text(stringResource(R.string.approval_once)) }
+                if ("session" in req.choices) PillButton(onClick = { onAnswer("session") }, enabled = !busy, kind = PillKind.Tonal) { Text(stringResource(R.string.approval_session)) }
+                PillButton(onClick = { onAnswer("deny") }, enabled = !busy, kind = PillKind.Quiet) { Text(stringResource(R.string.approval_deny)) }
+                if ("always" in req.choices) PillButton(onClick = { onAnswer("always") }, enabled = !busy, kind = PillKind.Quiet) { Text(stringResource(R.string.approval_always)) }
             }
         }
     }

@@ -268,4 +268,17 @@
     <string name="approval_hint">Nothing runs until you answer.</string>
     <string name="approval_notify_title">%1$s is waiting for you</string>
     <string name="approval_channel">Approvals</string>
+    <string name="web_forward">Forward</string>
+    <string name="web_ssl_title">Certificate not trusted</string>
+    <string name="web_ssl_text">%1$s uses a certificate this phone does not trust (often a self-signed one at home). The traffic still runs inside the tunnel. Continue?</string>
+    <string name="web_ssl_go">Continue</string>
+    <string name="web_downloading">Downloading %1$s…</string>
+    <string name="web_downloaded">Saved %1$s to Downloads</string>
+    <string name="web_download_failed">Could not download %1$s</string>
+    <string name="web_error_hint">Check the connection, then reload.</string>
+    <string name="tool_command">Run a command</string>
+    <string name="tool_running">Running…</string>
+    <string name="tool_exit">exit %1$d</string>
+    <string name="tool_no_output">(no output)</string>
+    <string name="tool_copy">Copy command</string>
 </resources>

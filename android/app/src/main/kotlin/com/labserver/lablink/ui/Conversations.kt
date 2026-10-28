@@ -142,7 +142,7 @@ fun ConversationSection(
         )
     }
     if (found == null && visible.size > SHOWN) {
-        TextButton(onClick = { showAll = !showAll }, modifier = Modifier.padding(start = 4.dp)) {
+        PillButton(onClick = { showAll = !showAll }, modifier = Modifier.padding(start = 4.dp)) {
             Text(if (showAll) stringResource(R.string.chats_less) else stringResource(R.string.chats_more, visible.size))
         }
     }
@@ -207,7 +207,12 @@ fun ConversationMenu(
     expanded: Boolean, pinned: Boolean, onDismiss: () -> Unit,
     onRename: () -> Unit, onPin: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit,
 ) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, shape = RoundedCornerShape(16.dp)) {
+    DropdownMenu(
+        expanded = expanded, onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(22.dp), containerColor = if (isDark()) Color(0xFF26262F) else Color.White, shadowElevation = 18.dp, tonalElevation = 0.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+        modifier = Modifier.padding(horizontal = 6.dp),
+    ) {
         DropdownMenuItem(
             text = { Text(stringResource(R.string.chat_rename)) },
             leadingIcon = { Icon(Icons.Rounded.DriveFileRenameOutline, contentDescription = null) },
@@ -236,30 +241,30 @@ fun RenameDialog(initial: String, onDone: (String) -> Unit, onDismiss: () -> Uni
     var text by remember { mutableStateOf(initial) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
-    AlertDialog(
+    LabAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.chat_rename)) },
         text = {
-            OutlinedTextField(
+            LabTextField(
                 value = text, onValueChange = { text = it }, singleLine = true,
                 label = { Text(stringResource(R.string.chat_rename_hint)) },
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
             )
         },
-        confirmButton = { TextButton(onClick = { onDone(text) }) { Text(stringResource(R.string.common_ok)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
+        confirmButton = { PillButton(onClick = { onDone(text) }) { Text(stringResource(R.string.common_ok)) } },
+        dismissButton = { PillButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
 @Composable
 fun DeleteDialog(title: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
+    LabAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.chat_delete)) },
         text = { Text(stringResource(R.string.chat_delete_confirm, title.ifBlank { stringResource(R.string.bot_new_chat) })) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.chat_delete), color = MaterialTheme.colorScheme.error) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
+        confirmButton = { PillButton(onClick = onConfirm, kind = PillKind.Danger) { Text(stringResource(R.string.chat_delete)) } },
+        dismissButton = { PillButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 

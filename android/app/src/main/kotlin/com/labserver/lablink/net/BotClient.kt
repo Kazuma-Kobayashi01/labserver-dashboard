@@ -34,6 +34,14 @@ sealed interface BotEvent {
     /** The agent started using a tool (web search...). */
     data object Tool : BotEvent
 
+    /** A tool started ([tool] like "terminal", [label] Hermes' short preview of it). */
+    data class ToolStart(val id: String, val tool: String, val label: String) : BotEvent
+
+    data class ToolEnd(val id: String) : BotEvent
+
+    /** What the bot-manager adds about a command: the full text, and once done its output, exit code and time. */
+    data class ToolDetail(val id: String, val command: String, val done: Boolean, val output: String? = null, val exitCode: Int? = null, val error: String? = null, val durationMs: Long? = null) : BotEvent
+
     /** The bot wants to do something guarded (download, install, delete...) and waits for the user's answer. */
     data class Approval(val request: ApprovalRequest) : BotEvent
     data object Done : BotEvent
@@ -95,8 +103,11 @@ class BotClient(
      */
     fun stream(history: List<ChatMessage>, bot: Bot, pick: ModelPick = ModelPick()): Flow<BotEvent> = callbackFlow {
         val sandbox = bot.isSandbox
-        val url = if (sandbox) "${prefs.effectiveManagerUrl}/bots/${bot.id}/chat/completions" else prefs.effectiveBotUrl + "/chat/completions"
-        val key = if (sandbox) prefs.managerKey else prefs.botKey
+        // with a manager key every bot talks through the bot-manager, which adds the command window's details to the
+        // stream; without one the default bot is reached straight at its Hermes profile
+        val viaManager = sandbox || prefs.managerKey.isNotBlank()
+        val url = if (viaManager) "${prefs.effectiveManagerUrl}/bots/${prefs.profileOf(bot.id)}/chat/completions" else prefs.effectiveBotUrl + "/chat/completions"
+        val key = if (viaManager) prefs.managerKey else prefs.botKey
         val markdown = prefs.markdown(bot.id)
         // a sandbox bot's prompt lives on the server, which adds the Markdown hint itself when asked
         val systemPrompt = if (sandbox) "" else listOf(bot.systemPrompt.trim(), if (markdown) MARKDOWN_HINT else "").filter { it.isNotEmpty() }.joinToString("\n\n")
@@ -120,7 +131,7 @@ class BotClient(
                     .readTimeout(120, TimeUnit.SECONDS) // the server sends a keepalive every 10 s
                     .build()
                 val req = try {
-                    request(history, url, key, systemPrompt, sandbox, pick, markdown)
+                    request(history, url, key, systemPrompt, sandbox, viaManager, pick, markdown)
                 } catch (e: IllegalArgumentException) {
                     null // an address OkHttp cannot parse
                 }
@@ -159,7 +170,7 @@ class BotClient(
         awaitClose { call?.cancel() }
     }
 
-    private fun request(history: List<ChatMessage>, url: String, key: String, systemPrompt: String, sandbox: Boolean, pick: ModelPick, markdown: Boolean): Request {
+    private fun request(history: List<ChatMessage>, url: String, key: String, systemPrompt: String, sandbox: Boolean, viaManager: Boolean, pick: ModelPick, markdown: Boolean): Request {
         val messages = JSONArray()
         if (systemPrompt.isNotBlank()) messages.put(JSONObject().put("role", "system").put("content", systemPrompt.trim()))
         val sent = history.filter { it.content.isNotBlank() || it.attachments.isNotEmpty() }.takeLast(MAX_HISTORY)
@@ -169,7 +180,7 @@ class BotClient(
             messages.put(JSONObject().put("role", m.role).put("content", buildContent(m.content, m.attachments, i in withPictures, readBytes)))
         }
         val body = JSONObject().put("model", "lab-bot").put("stream", true).put("messages", messages)
-        applyPick(body, sandbox, pick)
+        applyPick(body, viaManager, pick)
         if (sandbox && markdown) body.put("markdown", true)
         return Request.Builder()
             .url(url)
@@ -209,6 +220,19 @@ class BotClient(
         if (data == "[DONE]") return true
         if (event == "hermes.tool.progress") {
             emit(BotEvent.Tool)
+            try {
+                val o = JSONObject(data)
+                val id = o.optString("toolCallId")
+                if (id.isNotEmpty()) when (o.optString("status")) {
+                    "running" -> emit(BotEvent.ToolStart(id, o.optString("tool"), o.optString("label")))
+                    "completed" -> emit(BotEvent.ToolEnd(id))
+                }
+            } catch (_: Exception) {
+            }
+            return false
+        }
+        if (event == "lablink.tool") {
+            parseToolDetail(data)?.let(emit)
             return false
         }
         if (event == "approval.request") {
@@ -227,6 +251,20 @@ class BotClient(
 
     companion object {
         private const val MAX_HISTORY = 24
+
+        /** Reads the bot-manager's `lablink.tool` event; null when it is not one. */
+        fun parseToolDetail(data: String): BotEvent.ToolDetail? = try {
+            val o = JSONObject(data)
+            val id = o.optString("toolCallId")
+            fun str(k: String) = if (o.isNull(k)) null else o.optString(k)
+            if (id.isEmpty()) null else BotEvent.ToolDetail(
+                id = id, command = o.optString("command"), done = o.optString("status") == "completed",
+                output = str("output"), exitCode = if (o.isNull("exitCode") || !o.has("exitCode")) null else o.optInt("exitCode"),
+                error = str("error"), durationMs = if (o.isNull("durationMs") || !o.has("durationMs")) null else o.optLong("durationMs"),
+            )
+        } catch (_: Exception) {
+            null
+        }
 
         /** The same words the bot-manager adds for sandbox bots (MARKDOWN_HINT in bot_manager.py). */
         const val MARKDOWN_HINT = "Format replies in Markdown where it helps reading: headings for long answers, bullet or numbered lists for " +

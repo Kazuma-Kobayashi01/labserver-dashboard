@@ -30,5 +30,20 @@ func main() {
             thinkingMs = 4200,
         ),
         ChatMessage("user", "那就用 Go，帮我起个项目骨架"),
+        ChatMessage(
+            "assistant",
+            "先看看工作目录里有什么。\n\n好了，骨架建好了：`cmd/`、`internal/` 和 `go.mod` 都在。",
+            tools = listOf(
+                com.labserver.lablink.data.ToolRun(
+                    id = "demo-1", label = "List the workspace", command = "ls -la /workspace && go version",
+                    output = "total 8\ndrwxr-xr-x 2 root root 4096 .\ndrwxr-xr-x 1 root root 4096 ..\ngo version go1.26.6 linux/amd64",
+                    exitCode = 0, durationMs = 412, done = true, at = 13,
+                ),
+                com.labserver.lablink.data.ToolRun(
+                    id = "demo-2", label = "Create the module", command = "mkdir -p cmd/app internal && go mod init example.com/app",
+                    output = "go: creating new go.mod: module example.com/app", exitCode = 0, durationMs = 1830, done = true, at = 13,
+                ),
+            ),
+        ),
     )
 }

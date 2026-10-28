@@ -99,15 +99,8 @@ fun HomeLabScreen(tunnel: TunnelState, onBack: () -> Unit, onToggle: () -> Unit,
         return
     }
 
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Column(Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection)) {
-        LargeTopAppBar(
-            colors = androidx.compose.material3.TopAppBarDefaults.largeTopAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent, scrolledContainerColor = glassFill(strong = true)),
-            title = { Text(stringResource(R.string.nav_home_lab), fontWeight = FontWeight.Bold) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.web_back)) } },
-            scrollBehavior = scroll,
-            windowInsets = WindowInsets.statusBars,
-        )
+    Column(Modifier.fillMaxSize()) {
+        PageHeader(stringResource(R.string.nav_home_lab), onBack)
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize(),

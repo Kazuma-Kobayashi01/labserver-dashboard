@@ -255,11 +255,12 @@ private fun TableBlock(t: Block.Table, color: Color, codeBg: Color, link: Color)
 /** A code block with a header: the language on the left, a copy button on the right (as in Gemini and ChatGPT). */
 @Composable
 private fun CodeBlock(lang: String, code: String, color: Color) {
+    val Code = codePalette()
     val ctx = LocalContext.current
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { delay(1500); copied = false } }
-    // a dark editor panel in light and dark mode alike, as ChatGPT and Claude show code
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Code.panel)) {
+    // an editor panel: night colours in dark mode, a white page in light mode
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Code.panel).border(1.dp, Code.border, RoundedCornerShape(16.dp))) {
         Row(Modifier.fillMaxWidth().background(Code.bar).padding(start = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(lang.ifBlank { "code" }, style = MaterialTheme.typography.labelMedium, color = Code.muted, modifier = Modifier.weight(1f))
             IconButton(
@@ -276,7 +277,7 @@ private fun CodeBlock(lang: String, code: String, color: Color) {
                 )
             }
         }
-        val shown = remember(code, lang) {
+        val shown = remember(code, lang, Code) {
             buildAnnotatedString {
                 append(code)
                 for (sp in tokenize(code, lang)) {
@@ -301,17 +302,23 @@ private fun CodeBlock(lang: String, code: String, color: Color) {
     }
 }
 
-/** The code panel's colours (a soft night palette, the same in light and dark mode). */
-private object Code {
-    val panel = Color(0xFF1B1B26)
-    val bar = Color(0xFF242433)
-    val plain = Color(0xFFE4E4F0)
-    val muted = Color(0xFF9A9AB4)
-    val keyword = Color(0xFFC792EA)
-    val type = Color(0xFF82AAFF)
-    val string = Color(0xFFC3E88D)
-    val number = Color(0xFFF78C6C)
-    val comment = Color(0xFF6E7194)
-    val added = Color(0xFF4ED6A0)
-    val removed = Color(0xFFFF6B81)
-}
+/** The code panel's colours: a night editor in dark mode, a white page with GitHub-style colours in light mode. */
+internal data class CodePalette(
+    val panel: Color, val bar: Color, val border: Color, val plain: Color, val muted: Color, val keyword: Color,
+    val type: Color, val string: Color, val number: Color, val comment: Color, val added: Color, val removed: Color,
+)
+
+private val NightCode = CodePalette(
+    panel = Color(0xFF1B1B26), bar = Color(0xFF242433), border = Color(0x10FFFFFF), plain = Color(0xFFE4E4F0), muted = Color(0xFF9A9AB4),
+    keyword = Color(0xFFC792EA), type = Color(0xFF82AAFF), string = Color(0xFFC3E88D), number = Color(0xFFF78C6C),
+    comment = Color(0xFF6E7194), added = Color(0xFF4ED6A0), removed = Color(0xFFFF6B81),
+)
+
+private val DayCode = CodePalette(
+    panel = Color.White, bar = Color(0xFFF4F4F8), border = Color(0xFFE4E4EC), plain = Color(0xFF24292F), muted = Color(0xFF6E7781),
+    keyword = Color(0xFFCF222E), type = Color(0xFF8250DF), string = Color(0xFF0A3069), number = Color(0xFF0550AE),
+    comment = Color(0xFF6E7781), added = Color(0xFF1A7F37), removed = Color(0xFFCF222E),
+)
+
+@Composable
+internal fun codePalette(): CodePalette = if (isDark()) NightCode else DayCode

@@ -105,7 +105,7 @@ fun ReplyImage(src: String, botId: String, alt: String, modifier: Modifier = Mod
                 stringResource(R.string.img_failed), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 10.dp).weight(1f),
             )
-            TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.img_retry)) }
+            PillButton(onClick = { attempt++ }) { Text(stringResource(R.string.img_retry)) }
         }
         else -> Box(
             modifier.fillMaxWidth().height(220.dp).clip(shape).background(MaterialTheme.colorScheme.surfaceContainer),

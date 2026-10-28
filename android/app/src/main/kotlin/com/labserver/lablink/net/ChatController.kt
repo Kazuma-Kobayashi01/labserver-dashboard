@@ -19,6 +19,7 @@ import com.labserver.lablink.data.ChatStore
 import com.labserver.lablink.data.Conversation
 import com.labserver.lablink.data.ConversationStore
 import com.labserver.lablink.data.titleFrom
+import com.labserver.lablink.data.ToolRun
 import com.labserver.lablink.data.DEFAULT_BOT_ID
 import com.labserver.lablink.data.Listing
 import com.labserver.lablink.data.ListingCache
@@ -190,6 +191,9 @@ class ChatController(
             val content = StringBuilder()
             val reasoning = StringBuilder()
             var failedSend = false
+            // the tools of this reply, in the order they started
+            val tools = LinkedHashMap<String, ToolRun>()
+            fun pushTools() = update(convId, reply.id, content, reasoning, working = null, tools = tools.values.toList())
             val started = android.os.SystemClock.elapsedRealtime()
             var answeredAt = 0L
             var lastUi = 0L
@@ -217,6 +221,23 @@ class ChatController(
                                 if (throttled()) update(convId, reply.id, content, reasoning, working = null)
                             }
                             BotEvent.Tool -> onCurrent(convId) { it.copy(working = true) }
+                            is BotEvent.ToolStart -> {
+                                tools[ev.id] = tools[ev.id]?.copy(tool = ev.tool, label = ev.label) ?: ToolRun(ev.id, ev.tool, ev.label, at = content.length)
+                                pushTools()
+                            }
+                            is BotEvent.ToolEnd -> {
+                                tools[ev.id]?.let { tools[ev.id] = it.copy(done = true) }
+                                pushTools()
+                            }
+                            is BotEvent.ToolDetail -> {
+                                val t = tools[ev.id] ?: ToolRun(ev.id, at = content.length)
+                                tools[ev.id] = t.copy(
+                                    command = ev.command.ifEmpty { t.command }, done = t.done || ev.done,
+                                    output = ev.output ?: t.output, exitCode = ev.exitCode ?: t.exitCode,
+                                    error = ev.error ?: t.error, durationMs = ev.durationMs ?: t.durationMs,
+                                )
+                                pushTools()
+                            }
                             is BotEvent.Approval -> {
                                 // flush what came so far, so the question sits under the latest words
                                 update(convId, reply.id, content, reasoning, working = true)
@@ -247,8 +268,9 @@ class ChatController(
                     _ui.update { it.copy(waiting = it.waiting - convId, answering = false) }
                     // save into the conversation this reply belongs to, even if another one is open now
                     val thought = if (reasoning.isEmpty()) 0L else (if (answeredAt > 0) answeredAt else android.os.SystemClock.elapsedRealtime()) - started
-                    val finalReply = reply.copy(content = content.toString(), reasoning = reasoning.toString(), thinkingMs = thought)
-                    val empty = finalReply.content.isBlank() && finalReply.reasoning.isBlank()
+                    // a tool still marked running when the reply ends did not finish (the reply was stopped)
+                    val finalReply = reply.copy(content = content.toString(), reasoning = reasoning.toString(), thinkingMs = thought, tools = tools.values.map { it.copy(done = true) })
+                    val empty = finalReply.content.isBlank() && finalReply.reasoning.isBlank() && finalReply.tools.isEmpty()
                     // nothing came back after an error: the message did not get through
                     val finalList = if (!empty) history + finalReply
                     else if (failedSend) history.dropLast(1) + history.last().copy(failed = true)
@@ -638,11 +660,12 @@ class ChatController(
         _ui.update { if (it.conversationId == convId) change(it) else it }
     }
 
-    private fun update(convId: String, id: String, content: CharSequence, reasoning: CharSequence, working: Boolean?) {
-        live[convId]?.let { msgs -> live[convId] = msgs.map { if (it.id == id) it.copy(content = content.toString(), reasoning = reasoning.toString()) else it } }
+    private fun update(convId: String, id: String, content: CharSequence, reasoning: CharSequence, working: Boolean?, tools: List<ToolRun>? = null) {
+        fun ChatMessage.apply(): ChatMessage = copy(content = content.toString(), reasoning = reasoning.toString(), tools = tools ?: this.tools)
+        live[convId]?.let { msgs -> live[convId] = msgs.map { if (it.id == id) it.apply() else it } }
         onCurrent(convId) { st ->
             st.copy(
-                messages = st.messages.map { if (it.id == id) it.copy(content = content.toString(), reasoning = reasoning.toString()) else it },
+                messages = st.messages.map { if (it.id == id) it.apply() else it },
                 working = working ?: st.working,
             )
         }

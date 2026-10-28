@@ -18,6 +18,26 @@ data class ChatMessage(
     val failed: Boolean = false,
     /** How long the bot thought before it started answering (0 = it did not show its thinking). */
     val thinkingMs: Long = 0,
+    /** The tools the bot used while answering (commands with their output), in order. */
+    val tools: List<ToolRun> = emptyList(),
+)
+
+/**
+ * One tool the bot used during a reply. For a command: what ran, what it printed and how it ended. [at] is where in the
+ * reply's text it happened, so it is shown between the words it came between.
+ */
+@Serializable
+data class ToolRun(
+    val id: String,
+    val tool: String = "terminal",
+    val label: String = "",
+    val command: String = "",
+    val output: String = "",
+    val exitCode: Int? = null,
+    val error: String? = null,
+    val durationMs: Long? = null,
+    val done: Boolean = false,
+    val at: Int = 0,
 )
 
 /** The messages of one conversation, kept as a small JSON file in the app's private storage. */
