@@ -85,7 +85,7 @@
     <string name="common_ok">OK</string>
 
     <string name="bot_default_name">Lab bot</string>
-    <string name="bot_default_role">Your home-lab buddy</string>
+    <string name="bot_default_role">Head of the server, and your maid</string>
     <string name="bot_hello_named">Hi, I\'m %1$s</string>
     <string name="bots_title">My bots</string>
     <string name="bots_new">New bot</string>
@@ -147,7 +147,6 @@
     <string name="trash_expires_today">Removed for good today</string>
     <string name="trash_offline">Showing the last list; connect to change it</string>
     <string name="bot_sandbox_label">Sandbox</string>
-    <string name="bot_sandbox_hint">This bot runs commands in its own sandbox on the home server.</string>
     <string name="bot_prompt_hint_sandbox">Kept on the server and used in every conversation with this bot.</string>
     <string name="bot_saving">Saving…</string>
     <string name="bot_delete_sandbox_confirm">Move this bot to the trash? Its sandbox stops; its files and the conversation are kept for %1$d days and you can restore it.</string>
@@ -302,22 +301,22 @@
         <item quantity="other">Ran %1$d commands</item>
     </plurals>
     <string name="chats_list">Chats</string>
-    <!-- SSH terminal -->
+    <!-- bot terminal -->
+    <string name="shell_where_sandbox">Terminal · its sandbox</string>
+    <string name="shell_where_hermes">Terminal · the home server</string>
+    <string name="shell_no_terminal">This bot was made without a sandbox, so it has no terminal.</string>
+    <string name="shell_reconnect">Reconnect</string>
+    <string name="shell_ended">The terminal has ended.</string>
+    <string name="shell_no_sandbox">This bot has no sandbox yet. Send it a message first.</string>
+    <string name="shell_unauthorized">The bot manager key was not accepted. Check it in Settings.</string>
+    <string name="shell_not_found">The server does not offer a terminal for this bot yet.</string>
+    <string name="shell_failed">Could not open the terminal.</string>
     <string name="ssh_open">Remote SSH</string>
-    <string name="ssh_title">Terminal</string>
-    <string name="ssh_login">Log in to %1$s</string>
-    <string name="ssh_user">User name</string>
-    <string name="ssh_password">Password</string>
-    <string name="ssh_password_hint">Leave empty to use this phone\'s key</string>
-    <string name="ssh_remember">Remember the password</string>
-    <string name="ssh_connect">Connect</string>
     <string name="ssh_disconnect">Disconnect</string>
-    <string name="ssh_enter_bot">Enter bot</string>
     <string name="ssh_paste">Paste</string>
-    <string name="ssh_closed">Disconnected.</string>
-    <string name="ssh_failed">Could not connect: %1$s</string>
-    <string name="ssh_auth_failed">The user name or password was not accepted.</string>
-    <string name="ssh_hostkey_changed">The server\'s key has changed since last time, so the login was stopped. If the server was reinstalled, clear the app\'s data to trust it again.</string>
-    <string name="ssh_key_title">This phone\'s key</string>
-    <string name="ssh_key_hint">Add it to ~/.ssh/authorized_keys on the server to log in without a password.</string>
+    <string name="bot_sandbox_switch">Sandbox</string>
+    <string name="bot_sandbox_on_hint">Runs commands and works with files in its own container on the server, and has a terminal.</string>
+    <string name="bot_sandbox_off_hint">Off: it talks, searches the web and looks at pictures, but runs no commands and has no terminal. Chosen once, when the bot is made.</string>
+    <string name="bot_sandbox_none">No sandbox: it runs no commands and has no terminal.</string>
+    <string name="approval_title_system">Allow %1$s to change the server (services, containers, system settings)?</string>
 </resources>

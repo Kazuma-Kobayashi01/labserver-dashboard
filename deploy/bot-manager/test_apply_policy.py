@@ -63,5 +63,13 @@ hooks_auto_accept: true
         self.assertEqual(out, ap.set_api_toolsets(ap.use_template_terminal(out, TPL), ap.APP_TOOLSETS))
 
 
+
+    def test_the_admin_bot_runs_its_commands_here(self):
+        out = ap.set_api_toolsets(ap.use_local_terminal(LAB, "/h/profiles/labbot/workspace"), ap.APP_TOOLSETS)
+        self.assertIn('terminal:\n  backend: "local"\n  cwd: "/h/profiles/labbot/workspace"\n  timeout: 300\n  lifetime_seconds: 300\nbrowser:', out)
+        self.assertNotIn("container_memory", out)
+        self.assertIn("    - terminal\n", out)
+        self.assertIn("model:\n  default: x", out)
+
 if __name__ == "__main__":
     unittest.main()

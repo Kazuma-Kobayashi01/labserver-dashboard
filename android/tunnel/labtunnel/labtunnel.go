@@ -283,8 +283,7 @@ func (in *instance) dial(ctx context.Context, _, addr string) (net.Conn, error) 
 	if err != nil {
 		host, port = addr, "80"
 	}
-	// the web sites, and SSH for the app's terminal
-	if port != "80" && port != "443" && port != "22" {
+	if port != "80" && port != "443" {
 		return nil, fmt.Errorf("port %s is not allowed", port)
 	}
 	if !in.hostAllowed(host) {

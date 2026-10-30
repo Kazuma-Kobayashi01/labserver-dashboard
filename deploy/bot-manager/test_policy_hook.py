@@ -36,6 +36,21 @@ class Policy(unittest.TestCase):
             self.assertEqual((r["action"], r["rule_key"]), ("approve", f"lablink-{kind}"), c)
             self.assertIn(c[:20], r["message"])
 
+    def test_changes_to_the_machine_ask(self):
+        for c in ["sudo reboot", "ssh labserver 'sudo systemctl restart nginx'", "systemctl --now disable mihomo",
+                  "sudo incus delete -f old", "incus stop hermes", "docker rm -f abc", "docker system prune -a",
+                  "sudo mkfs.ext4 /dev/sdb1", "dd if=x.img of=/dev/sda", "pkill -f gateway", "kill 1234",
+                  "sudo ufw allow 22", "sudo usermod -aG docker bob", "sudo chown -R me /srv", "chmod -R 777 /",
+                  "echo x | sudo tee /etc/hosts", "echo 1 > /etc/motd", "sudo sed -i s/a/b/ /etc/ssh/sshd_config",
+                  "crontab -r", "sudo umount /mnt"]:
+            r = ask(c)
+            self.assertIsNotNone(r, c)
+            self.assertEqual(r["rule_key"], "lablink-system", c)
+        # looking around stays free
+        for c in ["systemctl status nginx", "incus list", "docker ps -a", "journalctl -u bot-manager -n 50", "ssh labserver uptime",
+                  "sudo cat /etc/nginx/sites-available/bot", "df -h", "ps aux | grep hermes", "skill-check", "ls /etc"]:
+            self.assertIsNone(ask(c), c)
+
     def test_a_script_is_judged_by_what_it_does(self):
         home = tempfile.mkdtemp()
         ws = os.path.join(home, "sandboxes", "docker", "profile_x", "workspace")

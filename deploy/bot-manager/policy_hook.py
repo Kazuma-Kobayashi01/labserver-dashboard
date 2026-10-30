@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Hermes `pre_tool_call` hook for the app's bots: a command that downloads, installs or updates software, or deletes files
-is sent to the human-approval gate, so the app asks the user first (Allow once / for this chat / always / Deny).
+"""Hermes `pre_tool_call` hook for the app's bots: a command that downloads, installs or updates software, deletes files, or
+changes the machine itself (reboots, stops services or containers, kills processes, edits /etc...) is sent to the
+human-approval gate, so the app asks the user first (Allow once / for this chat / always / Deny).
 Everything else runs as before: writing and reading files, drawing pictures, running code.
 
 Wire protocol (Hermes shell hooks): a JSON payload on stdin; on stdout either nothing (go ahead) or
@@ -22,11 +23,28 @@ import re
 import sys
 import time
 
-KINDS = ("delete", "install", "download")
+KINDS = ("system", "delete", "install", "download")
 
 _W = r"(?:^|[\s;&|()`$]|\b)"   # start of a command word
 
 PATTERNS = {
+    # changes to the machine itself: what an admin bot on the server must not do without asking
+    "system": [
+        r"\b(?:reboot|shutdown|poweroff|halt)\b",
+        r"\bsystemctl\s+(?:-\S+\s+)*(?:stop|disable|mask|restart|kill|isolate|reboot|poweroff|halt)\b",
+        r"\bservice\s+\S+\s+(?:stop|restart)\b",
+        r"\b(?:incus|lxc)\s+(?:delete|rm|stop|restart|move|rename|config\s+(?:set|unset|device|edit)|network\s+(?:delete|set|edit)|storage\s+(?:delete|set|edit)|snapshot\s+(?:delete|restore))\b",
+        r"\bdocker\s+(?:rm|rmi|stop|kill|restart|(?:system|volume|image|container|network|builder)\s+(?:rm|prune|stop|kill))\b",
+        r"\b(?:mkfs(?:\.\w+)?|fdisk|sfdisk|parted|wipefs|mkswap|swapoff)\b",
+        r"\bdd\b[^|;&]*\bof=",
+        _W + r"(?:kill|pkill|killall)\s",
+        r"\b(?:ufw|iptables|ip6tables|nft|firewall-cmd)\s+\S",
+        r"\b(?:useradd|userdel|usermod|groupdel|passwd|chpasswd|visudo)\b",
+        r"\b(?:chmod|chown|chgrp)\s+(?:-\S*\s+)*-R\b|\b(?:chmod|chown|chgrp)\s+-\S*R",
+        r"\bcrontab\s+-[re]\b",
+        r">>?\s*/(?:etc|boot|usr|var/lib)/|\btee\s+(?:-a\s+)?/(?:etc|boot)/|\bsed\s+-i\b[^|;&]*\s/etc/",
+        r"\bmount\s+\S|\bumount\b",
+    ],
     "install": [
         r"\b(?:pip3?|pipx)\s+(?:install|download)\b",
         r"\bpython3?(?:\.\d+)?\s+-m\s+pip\s+(?:install|download)\b",

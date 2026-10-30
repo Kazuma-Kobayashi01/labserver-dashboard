@@ -23,6 +23,11 @@ data class Bot(
     val modelProvider: String = "",
     val modelId: String = "",
     val reasoning: String = "",
+    /**
+     * A server bot made with a sandbox: it may run commands and use files there, and has a terminal. Chosen once, when it
+     * is made; bots from before the choice existed all have one.
+     */
+    val sandboxed: Boolean = true,
 ) {
     val pick: ModelPick get() = ModelPick(modelProvider, modelId, reasoning)
 }
@@ -48,6 +53,12 @@ const val DEFAULT_BOT_ID = "lab"
 private val SANDBOX_ID = Regex("^b[0-9a-f]{10}$")
 fun isSandboxId(id: String) = SANDBOX_ID.matches(id)
 val Bot.isSandbox: Boolean get() = isSandboxId(id)
+
+/** A server bot that has its own sandbox (commands, files). */
+val Bot.hasSandbox: Boolean get() = isSandbox && sandboxed
+
+/** Who gets a terminal: the default bot (the server's admin) and the bots with a sandbox. */
+val Bot.hasTerminal: Boolean get() = id == DEFAULT_BOT_ID || hasSandbox
 
 /** A bot in the server's trash; [expiresAt] (epoch seconds) is when it will be removed for good. */
 @Serializable

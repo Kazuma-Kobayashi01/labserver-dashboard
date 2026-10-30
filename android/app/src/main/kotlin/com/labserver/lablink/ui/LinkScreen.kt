@@ -294,6 +294,12 @@ private fun Field(value: String, onChange: (String) -> Unit, label: String, secr
         singleLine = true,
         shape = RoundedCornerShape(16.dp),
         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
+        // keys and addresses: plain characters, no pinyin, no autocorrect, and a password keyboard (which does not learn
+        // what is typed) for the secrets
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            keyboardType = if (secret) androidx.compose.ui.text.input.KeyboardType.Password else androidx.compose.ui.text.input.KeyboardType.Uri,
+            autoCorrectEnabled = false,
+        ),
         modifier = Modifier.fillMaxWidth(),
     )
 }

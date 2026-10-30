@@ -124,7 +124,8 @@ import androidx.compose.material.icons.rounded.Edit
 import com.labserver.lablink.data.Attachment
 import com.labserver.lablink.data.Limits
 import com.labserver.lablink.net.Pending
-import com.labserver.lablink.data.isSandbox
+import com.labserver.lablink.data.hasSandbox
+import com.labserver.lablink.data.hasTerminal
 import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.ChatMessage
 import com.labserver.lablink.data.ReplyPart
@@ -285,14 +286,14 @@ fun ChatScreen(
                     Column(Modifier.weight(1f, fill = false)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(ui.bot.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                            if (ui.bot.isSandbox) {
+                            if (ui.bot.hasSandbox) {
                                 Spacer(Modifier.width(5.dp))
                                 Box(Modifier.size(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.tertiary))
                             }
                         }
                         // the open chat's title, or what the bot is (as ChatGPT shows the model under its name)
                         Text(
-                            ui.conversation?.title?.takeIf { it.isNotBlank() } ?: stringResource(if (ui.bot.isSandbox) R.string.bot_sandbox_label else R.string.bot_new_chat),
+                            ui.conversation?.title?.takeIf { it.isNotBlank() } ?: stringResource(if (ui.bot.hasSandbox) R.string.bot_sandbox_label else R.string.bot_new_chat),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
@@ -315,7 +316,7 @@ fun ChatScreen(
                     GlassIconButton(Icons.Rounded.MoreVert, stringResource(R.string.chat_more), { chatMenu = true })
                     BotMoreMenu(
                         chatMenu, onDismiss = { chatMenu = false },
-                        onTerminal = { onOpenTerminal(ui.bot) }, onEditBot = { onEditBot(ui.bot) }, onSettings = onOpenSettings,
+                        onTerminal = if (ui.bot.hasTerminal) ({ onOpenTerminal(ui.bot) }) else null, onEditBot = { onEditBot(ui.bot) }, onSettings = onOpenSettings,
                     )
                 }
             }
@@ -402,14 +403,15 @@ fun ChatScreen(
 
 /** The top bar's ⋮: a terminal on the bot's machine, the bot's own settings, and the app's settings. */
 @Composable
-private fun BotMoreMenu(expanded: Boolean, onDismiss: () -> Unit, onTerminal: () -> Unit, onEditBot: () -> Unit, onSettings: () -> Unit) {
+private fun BotMoreMenu(expanded: Boolean, onDismiss: () -> Unit, onTerminal: (() -> Unit)?, onEditBot: () -> Unit, onSettings: () -> Unit) {
     androidx.compose.material3.DropdownMenu(
         expanded = expanded, onDismissRequest = onDismiss,
         shape = RoundedCornerShape(22.dp), containerColor = if (isDark()) Color(0xFF26262F) else Color.White, shadowElevation = 18.dp, tonalElevation = 0.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
         modifier = Modifier.padding(horizontal = 6.dp),
     ) {
-        androidx.compose.material3.DropdownMenuItem(
+        // only the admin bot and the bots with a sandbox have a terminal
+        if (onTerminal != null) androidx.compose.material3.DropdownMenuItem(
             text = { Text(stringResource(R.string.ssh_open)) },
             leadingIcon = { Icon(Icons.Rounded.Terminal, contentDescription = null) },
             onClick = { onDismiss(); onTerminal() },

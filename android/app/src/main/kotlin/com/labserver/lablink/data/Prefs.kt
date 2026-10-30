@@ -95,33 +95,6 @@ class Prefs(context: Context) {
         detail.value = d
     }
 
-    /** Where the SSH terminal connects: user@host:port (empty host = the home server, `<domain>`). */
-    var sshUser: String
-        get() = sp.getString("sshUser", "") ?: ""
-        set(v) = sp.edit().putString("sshUser", v.trim()).apply()
-    var sshHost: String
-        get() = sp.getString("sshHost", "") ?: ""
-        set(v) = sp.edit().putString("sshHost", v.trim()).apply()
-    var sshPort: Int
-        get() = sp.getInt("sshPort", 22)
-        set(v) = sp.edit().putInt("sshPort", v).apply()
-    val effectiveSshHost: String get() = sshHost.ifBlank { domain }
-    var sshPassword: String
-        get() = secret("sshPassword")
-        set(v) = putSecret("sshPassword", v)
-
-    /** This phone's own SSH key (PEM), made on first use; its public half goes into the server's authorized_keys. */
-    var sshKey: String
-        get() = secret("sshKey")
-        set(v) = putSecret("sshKey", v)
-    var sshPublicKey: String
-        get() = sp.getString("sshPublicKey", "") ?: ""
-        set(v) = sp.edit().putString("sshPublicKey", v.trim()).apply()
-
-    /** The server key accepted the first time (host → "type fingerprint"), so a changed key is noticed. */
-    fun knownHost(host: String): String = sp.getString("knownHost.$host", "") ?: ""
-    fun setKnownHost(host: String, key: String) = sp.edit().putString("knownHost.$host", key).apply()
-
     /** Whether [botId] is asked to format its replies in Markdown (on unless switched off). */
     fun markdown(botId: String): Boolean = sp.getBoolean("markdown.$botId", true)
     fun setMarkdown(botId: String, on: Boolean) = sp.edit().putBoolean("markdown.$botId", on).apply()

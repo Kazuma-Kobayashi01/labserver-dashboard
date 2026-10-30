@@ -47,6 +47,12 @@ MARKDOWN_HINT = ("Format replies in Markdown where it helps reading: headings fo
                  "tag for code, commands and config. Keep short conversational replies as plain sentences.")
 
 
+# a bot made without a sandbox talks, searches the web, looks at pictures and keeps notes: no commands and no files
+CHAT_TOOLSETS = ["memory", "session_search", "todo", "vision", "web"]
+# the host the admin bot (and its terminal) reaches over SSH from this container; set up as in README "Lab bot admin"
+ADMIN_SSH_HOST = "labserver"
+
+
 class ApiError(Exception):
     def __init__(self, status, code, message):
         super().__init__(message)
@@ -258,6 +264,30 @@ class Backend:
                 return True
         return False
 
+    def chat_only(self, path):
+        """Takes commands and files away from the profile at [path] (a bot made without a sandbox)."""
+        import apply_policy
+        cfg = os.path.join(path, "config.yaml")
+        with open(cfg) as f:
+            text = f.read()
+        with open(cfg, "w") as f:
+            f.write(apply_policy.set_api_toolsets(text, CHAT_TOOLSETS))
+
+    def shell_container(self, path):
+        """The sandbox container of the profile at [path] for a terminal: a running one, else a stopped one started
+        again; None when the bot has no sandbox yet."""
+        found = self._containers_under(path)
+        for cid, running in found:
+            if running:
+                return cid
+        for cid, _ in found:
+            try:
+                self._run(["docker", "start", cid], timeout=60)
+                return cid
+            except RuntimeError:
+                continue
+        return None
+
     def fix_owner(self, path):
         """Sandboxes write as root; give the files back so they can be removed."""
         self._run(["docker", "run", "--rm", "-v", f"{path}:/d", self.cfg.helper_image, "chown", "-R",
@@ -329,6 +359,10 @@ class Manager:
                 if not isinstance(v, str) or len(v) > 80 or re.search(r"[\r\n\x00]", v):
                     raise ApiError(400, "bad_request", f"{k} must be a short string")
                 out[k] = v.strip()
+        if "sandboxed" in spec and not partial:
+            if not isinstance(spec["sandboxed"], bool):
+                raise ApiError(400, "bad_request", "sandboxed must be true or false")
+            out["sandboxed"] = spec["sandboxed"]
         if "color" in spec:
             c = spec["color"]
             if not isinstance(c, int) or isinstance(c, bool) or not (0 <= c <= 0xFFFFFFFF):
@@ -340,6 +374,8 @@ class Manager:
     def _view(self, b, with_state=True):
         v = {k: b.get(k) for k in ("id", "name", "role", "color", "systemPrompt", "createdAt")}
         v.update(modelProvider=b.get("modelProvider", ""), modelId=b.get("modelId", ""), reasoning=b.get("reasoning", ""))
+        # bots from before the choice existed all have one
+        v["sandboxed"] = b.get("sandboxed", True)
         if b["state"] == "trashed":
             v["trashedAt"] = b.get("trashedAt")
             if self.cfg.trash_days > 0 and b.get("trashedAt"):
@@ -378,12 +414,14 @@ class Manager:
             bid = "b" + secrets.token_hex(5)
             now = int(time.time())
             entry = {"id": bid, "state": "creating", "role": "", "systemPrompt": "", "color": 0xFF5546E0,
-                     "createdAt": now, **data}
+                     "sandboxed": False, "createdAt": now, **data}
             self.reg.bots[bid] = entry
             self.reg.save()
         try:
             self.backend.create_profile(bid)
             pdir = self.profile_dir(bid)
+            if not entry["sandboxed"]:
+                self.backend.chat_only(pdir)
             key = secrets.token_urlsafe(32)[:40]
             model_key = read_env_value(os.path.join(self.cfg.profiles, self.cfg.template, ".env"), "DEEPSEEK_API_KEY")
             env_path = os.path.join(pdir, ".env")
@@ -462,6 +500,24 @@ class Manager:
         elif bot not in self.cfg.local_profiles or not os.path.isdir(self.profile_dir(bot)):
             raise ApiError(404, "not_found", "no such bot")
         return self.profile_dir(bot)
+
+    def shell_argv(self, bid):
+        """The command a terminal on [bid] runs, and the folder it starts in: a login shell inside a sandbox bot's own
+        container, or, for the app's own bot (the admin), a login on the host over SSH. A bot made without a sandbox has
+        no terminal."""
+        home = self.app_bot_home(bid)
+        if not ID_RE.match(bid):
+            # the app's own bot is the server's admin: its terminal is a login on the host itself
+            return ["ssh", "-t", "-o", "BatchMode=yes", ADMIN_SSH_HOST], None
+        with self.reg.lock:
+            sandboxed = self._get(bid, "active").get("sandboxed", True)
+        if not sandboxed:
+            raise ApiError(403, "no_terminal", "this bot was made without a sandbox, so it has no terminal")
+        cid = self.backend.shell_container(home)
+        if not cid:
+            raise ApiError(409, "no_sandbox", "this bot has no sandbox yet; send it a message first")
+        return ["docker", "exec", "-it", "-e", "TERM=xterm-256color", cid,
+                "sh", "-c", "command -v bash >/dev/null && exec bash -l || exec sh -l"], None
 
     def media_file(self, bot, path):
         """The picture a bot's reply names (`MEDIA:<path>`), as (host path, content type). Bots name paths inside their
@@ -615,7 +671,9 @@ class Manager:
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)
-        return {"name": final, "size": length, "path": f"{self.cfg.sandbox_attachments}/{final}"}
+        # a sandbox bot sees the folder where its container mounts it; the admin bot works here and sees the real path
+        where = f"{self.cfg.sandbox_attachments}/{final}" if ID_RE.match(bid) else os.path.join(folder, final)
+        return {"name": final, "size": length, "path": where}
 
     # -- trash / restore / purge
     # what the gateway may write into `profiles/<id>` after the bot went to the trash: its logs, and the transcript of a chat
@@ -844,9 +902,64 @@ class ToolRelay:
         return ("event: lablink.tool\ndata: " + json.dumps(out) + "\n\n").encode()
 
 
+# -- a minimal WebSocket (RFC 6455) for the terminal: binary frames carry the bytes, text frames carry JSON controls
+WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+WS_MAX_FRAME = 1 << 20
+
+
+def ws_accept(key):
+    import base64
+    return base64.b64encode(hashlib.sha1((key + WS_GUID).encode()).digest()).decode()
+
+
+def ws_frame(payload, opcode=2):
+    head = bytes([0x80 | opcode])
+    n = len(payload)
+    if n < 126:
+        head += bytes([n])
+    elif n < 1 << 16:
+        head += bytes([126]) + n.to_bytes(2, "big")
+    else:
+        head += bytes([127]) + n.to_bytes(8, "big")
+    return head + payload
+
+
+def ws_read(rfile):
+    """One frame from the client as (opcode, payload); None when the connection ended. Client frames are masked."""
+    def exact(n):
+        buf = b""
+        while len(buf) < n:
+            chunk = rfile.read(n - len(buf))
+            if not chunk:
+                return None
+            buf += chunk
+        return buf
+    head = exact(2)
+    if head is None:
+        return None
+    opcode, n = head[0] & 0x0F, head[1] & 0x7F
+    if n == 126:
+        ext = exact(2)
+        n = int.from_bytes(ext, "big") if ext else None
+    elif n == 127:
+        ext = exact(8)
+        n = int.from_bytes(ext, "big") if ext else None
+    if n is None or n > WS_MAX_FRAME:
+        return None
+    mask = exact(4) if head[1] & 0x80 else b""
+    if mask is None:
+        return None
+    data = exact(n) if n else b""
+    if data is None:
+        return None
+    if mask:
+        data = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
+    return opcode, data
+
+
 def make_handler(mgr):
     cfg = mgr.cfg
-    bot_re = re.compile(r"^/m/v1/bots/([a-z0-9][a-z0-9-]{0,40})(/restore|/chat/completions|/files|/runs/([A-Za-z0-9_.:-]{1,120})/approval)?$")
+    bot_re = re.compile(r"^/m/v1/bots/([a-z0-9][a-z0-9-]{0,40})(/restore|/chat/completions|/files|/shell|/runs/([A-Za-z0-9_.:-]{1,120})/approval)?$")
     open_paths = ("/m/v1/bots", "/m/v1/models", "/m/v1/media")
 
     class Handler(BaseHTTPRequestHandler):
@@ -922,8 +1035,10 @@ def make_handler(mgr):
                         return self._json(201, mgr.create(self._body()))
                     raise ApiError(405, "method_not_allowed", "method not allowed")
                 bid, tail, run_id = bot_re.match(path).groups()
-                if not ID_RE.match(bid) and (bid not in cfg.local_profiles or tail is None or not tail.startswith(("/files", "/runs/", "/chat/"))):
-                    raise ApiError(404, "not_found", "not found")   # an app profile has chat, files and approvals only
+                if not ID_RE.match(bid) and (bid not in cfg.local_profiles or tail is None or not tail.startswith(("/files", "/runs/", "/chat/", "/shell"))):
+                    raise ApiError(404, "not_found", "not found")   # an app profile has chat, files, approvals and a shell only
+                if tail == "/shell" and method == "GET":
+                    return self._shell(bid)
                 if tail and tail.startswith("/runs/") and method == "POST":
                     return self._json(*mgr.answer_approval(bid, run_id, self._body()))
                 if tail == "/restore" and method == "POST":
@@ -955,6 +1070,101 @@ def make_handler(mgr):
         do_POST = lambda self: self._route("POST")
         do_PATCH = lambda self: self._route("PATCH")
         do_DELETE = lambda self: self._route("DELETE")
+
+        # -- terminal
+        def _shell(self, bid):
+            """A terminal in [bid]'s own machine over a WebSocket: what the shell prints goes out as binary frames, binary
+            frames from the app are typed into it, and a text frame {"resize": [cols, rows]} resizes it."""
+            import fcntl, pty, select, signal, struct, termios
+            key = self.headers.get("Sec-WebSocket-Key", "")
+            if self.headers.get("Upgrade", "").lower() != "websocket" or not key:
+                raise ApiError(400, "bad_request", "expected a WebSocket upgrade")
+            argv, cwd = mgr.shell_argv(bid)
+            q = parse_qs(urlsplit(self.path).query)
+            def size(name, default, hi):
+                try:
+                    return max(1, min(hi, int((q.get(name) or [default])[0])))
+                except ValueError:
+                    return default
+            cols, rows = size("cols", 80, 500), size("rows", 24, 300)
+            self.wfile.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                              f"Sec-WebSocket-Accept: {ws_accept(key)}\r\n\r\n").encode())
+            self.wfile.flush()
+            self.close_connection = True
+            log.info("terminal opened on %s (%sx%s)", bid, cols, rows)
+            pid, fd = pty.fork()
+            if pid == 0:
+                try:
+                    if cwd:
+                        os.chdir(cwd)
+                    # a clean environment: none of the manager's own settings (its key) reach the shell
+                    env = {k: os.environ[k] for k in ("PATH", "HOME", "USER", "LOGNAME", "SHELL") if k in os.environ}
+                    env.update(TERM="xterm-256color", LANG="C.UTF-8", HERMES_HOME=cfg.hermes_home)
+                    os.execvpe(argv[0], argv, env)
+                finally:
+                    os._exit(127)
+            fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+            send_lock = threading.Lock()
+            def send(payload, opcode=2):
+                with send_lock:
+                    self.wfile.write(ws_frame(payload, opcode))
+                    self.wfile.flush()
+            def pump_out():
+                try:
+                    while True:
+                        r, _, _ = select.select([fd], [], [], 30)
+                        if not r:
+                            send(b"", 9)      # a ping now and then keeps idle proxies from closing the line
+                            continue
+                        data = os.read(fd, 64 * 1024)
+                        if not data:
+                            break
+                        send(data)
+                except (OSError, ValueError):
+                    pass
+                # say goodbye, unless the app already left (then the connection is closed)
+                try:
+                    send(b"\x03\xe8", 8)
+                except (OSError, ValueError):
+                    pass
+            out = threading.Thread(target=pump_out, daemon=True)
+            out.start()
+            try:
+                while True:
+                    frame = ws_read(self.rfile)
+                    if frame is None:
+                        break
+                    op, data = frame
+                    if op == 2 or op == 0:
+                        os.write(fd, data)
+                    elif op == 1:
+                        try:
+                            ctl = json.loads(data)
+                            c, r = ctl.get("resize") or (0, 0)
+                            if 0 < int(c) <= 500 and 0 < int(r) <= 300:
+                                fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", int(r), int(c), 0, 0))
+                        except (ValueError, TypeError, AttributeError):
+                            pass
+                    elif op == 9:
+                        send(data, 10)
+                    elif op == 8:
+                        break
+            except OSError:
+                pass
+            finally:
+                try:
+                    os.kill(pid, signal.SIGHUP)
+                except OSError:
+                    pass
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                try:
+                    os.waitpid(pid, 0)
+                except OSError:
+                    pass
+                log.info("terminal closed on %s", bid)
 
         # -- chat
         def _chat(self, bid, body):

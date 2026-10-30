@@ -92,6 +92,7 @@ class ManagerClient(private val ep: ManagerEndpoint) {
 
     private fun spec(b: Bot) = JSONObject().put("name", b.name).put("role", b.role).put("systemPrompt", b.systemPrompt)
         .put("color", b.color).put("modelProvider", b.modelProvider).put("modelId", b.modelId).put("reasoning", b.reasoning)
+        .put("sandboxed", b.sandboxed)
 
     private suspend fun <T> call(method: String, path: String, body: JSONObject?, parse: (String) -> T): ManagerResult<T> =
         withContext(Dispatchers.IO) {
@@ -159,6 +160,7 @@ class ManagerClient(private val ep: ManagerEndpoint) {
             modelProvider = o.optString("modelProvider"),
             modelId = o.optString("modelId"),
             reasoning = o.optString("reasoning"),
+            sandboxed = o.optBoolean("sandboxed", true),
         )
 
         fun parseCatalog(text: String): Catalog {

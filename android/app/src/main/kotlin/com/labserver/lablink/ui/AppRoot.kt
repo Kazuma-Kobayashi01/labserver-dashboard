@@ -80,6 +80,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.labserver.lablink.R
 import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.isSandbox
+import com.labserver.lablink.data.hasSandbox
 import com.labserver.lablink.net.ManagerResult
 import com.labserver.lablink.labApp
 import com.labserver.lablink.tunnel.TunnelState
@@ -194,7 +195,7 @@ fun AppRoot() {
                                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                                     Text(bot.name, style = MaterialTheme.typography.titleSmall, fontWeight = if (open) FontWeight.ExtraBold else FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(
-                                        bot.role.ifBlank { stringResource(if (bot.isSandbox) R.string.bot_sandbox_label else R.string.bot_hello_sub) },
+                                        bot.role.ifBlank { stringResource(if (bot.hasSandbox) R.string.bot_sandbox_label else R.string.bot_hello_sub) },
                                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     )
                                 }

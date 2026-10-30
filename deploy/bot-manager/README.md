@@ -60,6 +60,29 @@ fields. Both are checked against the catalog (400 `unknown_model` / `unknown_rea
 `model` + `model_options.reasoning` (Hermes ignores a bare model name; a rejected model still answers HTTP 200 with
 `finish_reason: "error"`). ChatGPT and DeepSeek logins live on the server only (`hermes auth`, `.env`).
 
+## Sandbox or not
+
+A bot is made with or without a sandbox (`"sandboxed": true` in `POST /m/v1/bots`; off unless asked, and the app's Coder
+template asks). With one it keeps the template's Docker terminal and file tools and gets a terminal in the app; without one
+its profile is cut down to chat tools (`memory, session_search, todo, vision, web`): no commands, no files, no terminal
+(`/shell` answers 403). It is chosen once; `PATCH` ignores it. Bots from before the choice existed count as sandboxed.
+
+## Lab bot admin
+
+The app's own bot (`labbot`) is the server's admin. Its commands run in the Hermes container itself (`apply_policy.py
+--admin-labbot`: a local terminal, starting in its `workspace/`), and it reaches the host as `ssh labserver`. The policy hook
+still asks in the app before anything dangerous, including changes to the machine itself (rule `lablink-system`). Its SOUL
+is `labbot-SOUL.md`. Its terminal in the app is a login on the host. One-time setup, on the host (or from a Mac: `ssh home-away 'bash -s' < deploy/bot-manager/setup-admin-ssh.sh`):
+`setup-admin-ssh.sh` makes the container its own key, pins the host's key (only when it matches the host's own) and lets that
+key in from the container network only (`from="10.0.0.0/24"` in `authorized_keys`).
+
+## Terminal
+
+`GET /m/v1/bots/{id}/shell?cols=&rows=` (a WebSocket, manager key) opens a terminal in the bot's own machine: a login shell inside a sandbox
+bot's container (a stopped one is started again; none yet answers 409), or, for an app profile such as `labbot`, a login shell in its
+profile folder here in the Hermes container, as the manager's own user and with a clean environment. Binary frames carry the bytes both
+ways; a text frame `{"resize": [cols, rows]}` resizes it. nginx passes the route with the WebSocket upgrade headers and a one-day timeout.
+
 ## Files and pictures
 
 `POST /m/v1/bots/{id}/files` (raw body, `X-Filename` URL-encoded, at most 25 MB, 500 MB per bot) stores a file in the bot's profile

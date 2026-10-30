@@ -123,6 +123,7 @@ class ChatController(
     private companion object {
         const val MAX_RETRIES = 2
         const val RETRY_DELAY_MS = 1500L
+        val OLD_DEFAULT_ROLES = setOf("Your home-lab buddy", "你的家庭实验室小伙伴")
         const val UI_MS = 50L
     }
 
@@ -134,7 +135,9 @@ class ChatController(
     /** The only local bot. Custom local bots from earlier versions are dropped (with their chats). */
     private var local: Bot = botStore.load().let { saved ->
         saved.filter { it.id != DEFAULT_BOT_ID }.forEach { ConversationStore(dir, it.id).deleteAll() }
-        saved.firstOrNull { it.id == DEFAULT_BOT_ID } ?: makeDefault()
+        // the default bot became the server's admin (and maid): an untouched old role line follows it
+        saved.firstOrNull { it.id == DEFAULT_BOT_ID }?.let { if (it.role in OLD_DEFAULT_ROLES) it.copy(role = makeDefault().role) else it }
+            ?: makeDefault()
     }.also { botStore.save(listOf(it)) }
 
     private val initialListing = cache.load()

@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.InstallMobile
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.Button
@@ -62,9 +63,10 @@ fun ApprovalCard(req: ApprovalRequest, busy: Boolean, onAnswer: (String) -> Unit
         "download" -> Icons.Rounded.Download to R.string.approval_title_download
         "install" -> Icons.Rounded.InstallMobile to R.string.approval_title_install
         "delete" -> Icons.Rounded.DeleteOutline to R.string.approval_title_delete
+        "system" -> Icons.Rounded.Dns to R.string.approval_title_system
         else -> Icons.Rounded.Shield to R.string.approval_title_other
     }
-    val danger = req.kind == "delete" || req.kind == "danger"
+    val danger = req.kind == "delete" || req.kind == "system" || req.kind == "danger"
     val accent = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     val left by produceState(remaining(req)) { while (value > 0) { delay(1000); value = remaining(req) } }
 

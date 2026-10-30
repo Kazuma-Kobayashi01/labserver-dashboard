@@ -55,6 +55,12 @@ class FakeBackend:
         open(dest, "wb").write(self.container_files[container_path])
         return True
 
+    def chat_only(self, path):
+        self.calls.append(("chat_only", os.path.basename(path)))
+
+    def shell_container(self, path):
+        return "cid-" + os.path.basename(path) if os.path.basename(path) in self.sandboxes else None
+
     def gateway_serves(self, profile, key):
         return self.serves
 
@@ -350,7 +356,8 @@ class Api(Base):
         req = urllib.request.Request(self.base + "/m/v1/bots/labbot/files", method="POST", data=b"hello",
                                      headers={"Authorization": f"Bearer {KEY}", "X-Filename": "a.txt"})
         with urllib.request.urlopen(req, timeout=10) as r:
-            self.assertEqual(json.loads(r.read())["path"], "/root/.hermes/attachments/a.txt")
+            # the admin bot works in this container, so it is told the real path
+            self.assertEqual(json.loads(r.read())["path"], os.path.join(home, "attachments", "a.txt"))
         self.assertEqual(open(os.path.join(home, "attachments", "a.txt"), "rb").read(), b"hello")
         for method, path in (("PATCH", "/m/v1/bots/labbot"), ("DELETE", "/m/v1/bots/labbot"), ("POST", "/m/v1/bots/labbot/restore"), ("POST", "/m/v1/bots/bluefish/files")):
             self.assertEqual(self.call(method, path, {"name": "x", "messages": [{"role": "user", "content": "hi"}]})[0], 404, path)
@@ -625,6 +632,110 @@ class Janitor(Base):
         b = self.make("A")
         again = bm.Manager(self.cfg, self.fb)
         self.assertIn(b["id"], again.reg.bots)
+
+
+class ShellTest(Base):
+    """The terminal: a WebSocket into the bot's own machine."""
+
+    def ws(self, path, key=KEY):
+        import base64, socket
+        port = self.srv.server_address[1]
+        s = socket.create_connection(("127.0.0.1", port), timeout=10)
+        nonce = base64.b64encode(os.urandom(16)).decode()
+        s.sendall((f"GET {path} HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                   f"Sec-WebSocket-Key: {nonce}\r\nSec-WebSocket-Version: 13\r\nAuthorization: Bearer {key}\r\n\r\n").encode())
+        f = s.makefile("rb")
+        status = f.readline().decode()
+        while f.readline() not in (b"\r\n", b""):
+            pass
+        return s, f, status
+
+    @staticmethod
+    def masked(payload, opcode=2):
+        mask = os.urandom(4)
+        n = len(payload)
+        head = bytes([0x80 | opcode]) + (bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126]) + n.to_bytes(2, "big"))
+        return head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+
+    def test_frames_round_trip(self):
+        import io
+        for n in (0, 5, 200, 70000):
+            data = os.urandom(n)
+            self.assertEqual(bm.ws_read(io.BytesIO(bm.ws_frame(data))), (2, data))
+            self.assertEqual(bm.ws_read(io.BytesIO(self.masked(data, 1) if n < 65536 else bm.ws_frame(data, 1))), (1, data))
+        self.assertEqual(bm.ws_accept("dGhlIHNhbXBsZSBub25jZQ=="), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
+
+    def test_shell_runs_in_the_profile_and_takes_typing_and_resizes(self):
+        home = os.path.join(self.cfg.profiles, "labbot")
+        os.makedirs(home)
+        self.mgr.shell_argv = lambda bid: (["/bin/sh"], self.mgr.app_bot_home(bid))
+        s, f, status = self.ws("/m/v1/bots/labbot/shell?cols=100&rows=30")
+        self.assertIn("101", status)
+        s.sendall(self.masked(b'{"resize": [120, 40]}', 1))
+        s.sendall(self.masked(b"pwd; stty size; echo done-$((1+1))\n"))
+        seen = b""
+        deadline = time.time() + 10
+        while b"done-2" not in seen and time.time() < deadline:
+            frame = bm.ws_read(f)
+            if frame is None:
+                break
+            if frame[0] == 2:
+                seen += frame[1]
+        self.assertIn(b"done-2", seen)
+        self.assertIn(os.path.realpath(home).encode(), seen.replace(b"\r", b""))
+        self.assertIn(b"40 120", seen)
+        s.sendall(self.masked(b"", 8))
+        s.close()
+
+    def test_shell_needs_the_key_a_websocket_and_a_sandbox(self):
+        b = self.make("A", sandboxed=True)
+        s, f, status = self.ws(f"/m/v1/bots/{b['id']}/shell", key="wrong" * 6)
+        self.assertIn("401", status); s.close()
+        self.assertEqual(self.call("GET", f"/m/v1/bots/{b['id']}/shell")[0], 400)
+        self.fb.sandboxes.pop(b["id"], None)
+        s, f, status = self.ws(f"/m/v1/bots/{b['id']}/shell")
+        self.assertIn("409", status); s.close()
+        argv, cwd = (self.fb.sandboxes.__setitem__(b["id"], True), self.mgr.shell_argv(b["id"]))[1]
+        self.assertEqual(argv[:3], ["docker", "exec", "-it"])
+        self.assertIn("cid-" + b["id"], argv)
+        self.assertIsNone(cwd)
+        self.assertEqual(self.ws("/m/v1/bots/bluefish/shell")[2].split()[1], "404")
+
+
+class SandboxChoice(Base):
+    """A bot gets a sandbox (commands, files, a terminal) only when it is made with one."""
+
+    def test_bots_are_made_without_a_sandbox_unless_asked(self):
+        plain = self.make("Writer")
+        coder = self.make("Coder", sandboxed=True)
+        self.assertFalse(plain["sandboxed"])
+        self.assertTrue(coder["sandboxed"])
+        self.assertIn(("chat_only", plain["id"]), self.fb.calls)
+        self.assertNotIn(("chat_only", coder["id"]), self.fb.calls)
+        listed = {b["id"]: b["sandboxed"] for b in json.loads(self.call("GET", "/m/v1/bots")[1])["bots"]}
+        self.assertEqual(listed, {plain["id"]: False, coder["id"]: True})
+        # it is chosen once, when the bot is made
+        s, b = self.call("PATCH", f"/m/v1/bots/{plain['id']}", {"name": "Writer 2", "sandboxed": True})
+        self.assertEqual(s, 200)
+        self.assertFalse(json.loads(b)["sandboxed"])
+        self.assertEqual(self.call("POST", "/m/v1/bots", {"name": "X", "sandboxed": "yes"})[0], 400)
+
+    def test_older_bots_keep_their_sandbox(self):
+        b = self.make("Old", sandboxed=True)
+        with self.mgr.reg.lock:
+            self.mgr.reg.bots[b["id"]].pop("sandboxed")
+        self.assertTrue(json.loads(self.call("GET", "/m/v1/bots")[1])["bots"][0]["sandboxed"])
+        self.fb.sandboxes[b["id"]] = True
+        self.assertEqual(self.mgr.shell_argv(b["id"])[0][:2], ["docker", "exec"])
+
+    def test_terminal_only_for_sandbox_bots_and_the_admin_bot(self):
+        plain = self.make("Writer")
+        with self.assertRaises(bm.ApiError) as e:
+            self.mgr.shell_argv(plain["id"])
+        self.assertEqual(e.exception.status, 403)
+        os.makedirs(os.path.join(self.cfg.profiles, "labbot"))
+        argv, cwd = self.mgr.shell_argv("labbot")
+        self.assertEqual((argv[0], argv[-1], cwd), ("ssh", bm.ADMIN_SSH_HOST, None))
 
 
 if __name__ == "__main__":

@@ -5,12 +5,16 @@
   default profile) gets the `pre_tool_call` hook policy_hook.py: downloads, installs/updates and deletions ask the user
   in the app first;
 * with --sandbox-labbot the default profile also moves into a Docker sandbox like the other bots (the template's terminal
-  settings) and gets files and commands, so it can read and write what it is sent and draw pictures.
+  settings) and gets files and commands, so it can read and write what it is sent and draw pictures;
+* with --admin-labbot the default profile is the server's admin instead: its commands run here in the Hermes container
+  (no sandbox), from where it reaches the host with `ssh labserver` (see README "Lab bot admin"). The hook still asks
+  before anything dangerous.
 
 Every config.yaml it changes is backed up next to itself first; running it again changes nothing.
 
   python3 apply_policy.py --dry-run
   python3 apply_policy.py --sandbox-labbot
+  python3 apply_policy.py --admin-labbot
 """
 import json
 import os
@@ -67,6 +71,14 @@ def use_template_terminal(text, template):
     s, e = _block(lines, "terminal")
     ts, te = _block(tl, "terminal")
     return "".join(lines[:s] + tl[ts:te] + lines[e:])
+
+
+def use_local_terminal(text, cwd):
+    """[text] with its `terminal:` section replaced by a local one (commands run in this container) starting in [cwd]."""
+    lines = text.splitlines(keepends=True)
+    s, e = _block(lines, "terminal")
+    local = ['terminal:\n', '  backend: "local"\n', f'  cwd: "{cwd}"\n', '  timeout: 300\n', '  lifetime_seconds: 300\n']
+    return "".join(lines[:s] + local + lines[e:])
 
 
 def set_api_toolsets(text, toolsets):
@@ -145,6 +157,17 @@ def main(argv):
                 write(path, new, dry, stamp)
                 changed += 1
                 print(("would sandbox" if dry else "sandboxed") + f" {p}: Docker terminal, tools {', '.join(APP_TOOLSETS)}")
+    if "--admin-labbot" in argv:
+        for p in app_profiles:
+            prof = os.path.join(home, "profiles", p)
+            path = os.path.join(prof, "config.yaml")
+            with open(path) as f:
+                text = f.read()
+            new = set_api_toolsets(use_local_terminal(text, os.path.join(prof, "workspace")), APP_TOOLSETS)
+            if new != text:
+                write(path, new, dry, stamp)
+                changed += 1
+                print(("would make" if dry else "made") + f" {p} the admin: local terminal, tools {', '.join(APP_TOOLSETS)}")
     print(f"{changed} change(s){' (dry run)' if dry else ''}; restart hermes-gateway to apply")
     return 0
 

@@ -29,6 +29,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
@@ -163,8 +165,11 @@ fun BotEditorDialog(
     var showError by remember { mutableStateOf(false) }
     var pick by remember { mutableStateOf(initial?.pick ?: ModelPick()) }
     var showModels by remember { mutableStateOf(false) }
+    // a new bot has no sandbox unless asked for (the Coder template asks for one)
+    var sandboxed by remember { mutableStateOf(initial?.sandboxed ?: false) }
 
     val presetStrings = presets.map { p -> Triple(p.color, stringResource(p.name) to stringResource(p.role), stringResource(p.prompt)) }
+    val coderName = stringResource(R.string.preset_coder_name)
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         // the page glows in the colour being picked, so a change of colour shows at once
@@ -180,7 +185,7 @@ fun BotEditorDialog(
                     )
                     PillButton(enabled = !saving, kind = PillKind.Primary, onClick = {
                             if (name.isBlank()) showError = true
-                            else onSave((initial ?: Bot(name = name)).copy(name = name.trim(), role = role.trim(), systemPrompt = prompt.trim(), color = color, modelProvider = pick.provider, modelId = pick.model, reasoning = pick.reasoning))
+                            else onSave((initial ?: Bot(name = name)).copy(name = name.trim(), role = role.trim(), systemPrompt = prompt.trim(), color = color, modelProvider = pick.provider, modelId = pick.model, reasoning = pick.reasoning, sandboxed = sandboxed))
                         }) { Text(stringResource(if (saving) R.string.bot_saving else R.string.common_save)) }
                 }
                 Column(
@@ -194,9 +199,6 @@ fun BotEditorDialog(
                         if (role.isNotBlank()) Text(role, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
 
-                    if (sandbox) {
-                        Text(stringResource(R.string.bot_sandbox_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
                     error?.let {
                         Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
                             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
@@ -222,7 +224,7 @@ fun BotEditorDialog(
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 row.forEach { (c, np, text) ->
                                     Surface(
-                                        onClick = { name = np.first; role = np.second; prompt = text; color = c },
+                                        onClick = { name = np.first; role = np.second; prompt = text; color = c; sandboxed = np.first == coderName },
                                         shape = RoundedCornerShape(22.dp),
                                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                         modifier = Modifier.weight(1f),
@@ -258,6 +260,9 @@ fun BotEditorDialog(
                         supportingText = { Text(stringResource(if (sandbox) R.string.bot_prompt_hint_sandbox else R.string.bot_prompt_hint)) },
                         minLines = 6, maxLines = 14, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(),
                     )
+
+                    // a sandbox: commands, files and a terminal; picked when the bot is made, shown afterwards
+                    if (sandbox) SandboxChoice(sandboxed, editable = initial == null) { sandboxed = it }
 
                     // the bot's own default model and thinking level (the chat can still change them for itself)
                     Surface(onClick = { showModels = true }, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), modifier = Modifier.fillMaxWidth()) {
@@ -311,5 +316,33 @@ fun BotEditorDialog(
             confirmButton = { PillButton(onClick = { confirmDelete = false; onDelete() }) { Text(stringResource(R.string.common_ok)) } },
             dismissButton = { PillButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
+    }
+}
+
+/** Whether a server bot has its own sandbox: a switch while it is being made, a fixed line once it exists. */
+@Composable
+private fun SandboxChoice(on: Boolean, editable: Boolean, onChange: (Boolean) -> Unit) {
+    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (on) Icons.Rounded.Terminal else Icons.Rounded.ChatBubbleOutline, contentDescription = null,
+                tint = if (on) accentInk(MaterialTheme.colorScheme.primary) else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp),
+            )
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(stringResource(R.string.bot_sandbox_switch), style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    stringResource(
+                        when {
+                            on -> R.string.bot_sandbox_on_hint
+                            editable -> R.string.bot_sandbox_off_hint
+                            else -> R.string.bot_sandbox_none
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (editable) LabSwitch(checked = on, onCheckedChange = onChange)
+        }
     }
 }
