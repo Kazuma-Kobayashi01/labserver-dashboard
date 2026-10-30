@@ -19,6 +19,8 @@ deploy/mihomo-ui/dist/
 # macOS app
 mac/LabLink/.build/
 mac/LabLink/build/
+mac/LabBot/.build/
+mac/LabBot/build/
 
 # Secrets: never commit these
 *.key
