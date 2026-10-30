@@ -27,3 +27,17 @@ fun Modifier.pressable(onClick: () -> Unit): Modifier = composed {
     )
     this.graphicsLayer { scaleX = scale; scaleY = scale }.clickable(interactionSource = source, indication = null, onClick = onClick)
 }
+
+/**
+ * The app's springs, so motion feels like one physical world: [Soft] for things that arrive or leave (a little give),
+ * [Snappy] for things that open and close, [Bouncy] for small things that pop.
+ */
+object Springs {
+    fun <T> soft() = androidx.compose.animation.core.spring<T>(dampingRatio = 0.82f, stiffness = 320f)
+    fun <T> snappy() = androidx.compose.animation.core.spring<T>(dampingRatio = 0.86f, stiffness = 520f)
+    fun <T> bouncy() = androidx.compose.animation.core.spring<T>(dampingRatio = 0.55f, stiffness = 520f)
+}
+
+/** Opening and closing a block (folding text, a command window): its height and opacity follow a spring. */
+val springExpand = androidx.compose.animation.expandVertically(Springs.snappy()) + androidx.compose.animation.fadeIn(Springs.snappy())
+val springShrink = androidx.compose.animation.shrinkVertically(Springs.snappy()) + androidx.compose.animation.fadeOut(Springs.snappy())

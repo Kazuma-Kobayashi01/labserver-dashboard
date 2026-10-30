@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">LabLink</string>
+    <string name="app_name">Lab bot</string>
 
     <string name="tab_bot">Lab bot</string>
     <string name="tab_panels">Panels</string>
@@ -281,4 +281,43 @@
     <string name="tool_exit">exit %1$d</string>
     <string name="tool_no_output">(no output)</string>
     <string name="tool_copy">Copy command</string>
+    <!-- conversation display -->
+    <string name="detail_title">Conversation display</string>
+    <string name="detail_full">Detailed</string>
+    <string name="detail_standard">Standard</string>
+    <string name="detail_compact">Compact</string>
+    <string name="detail_minimal">Minimal</string>
+    <string name="detail_full_hint">Thinking opened, every command window open and kept open, code in full.</string>
+    <string name="detail_standard_hint">Thinking folded; a command shows while it runs and folds when it is done.</string>
+    <string name="detail_compact_hint">Commands folded to one line even while they run; long code folded.</string>
+    <string name="detail_minimal_hint">Just the answer: no thinking, the commands gathered into one line, code folded.</string>
+    <string name="code_show_all">Show all %1$d lines</string>
+    <string name="code_show_less">Show less</string>
+    <plurals name="tool_group_running">
+        <item quantity="one">Running %1$d command…</item>
+        <item quantity="other">Running %1$d commands…</item>
+    </plurals>
+    <plurals name="tool_group_done">
+        <item quantity="one">Ran %1$d command</item>
+        <item quantity="other">Ran %1$d commands</item>
+    </plurals>
+    <string name="chats_list">Chats</string>
+    <!-- SSH terminal -->
+    <string name="ssh_open">Remote SSH</string>
+    <string name="ssh_title">Terminal</string>
+    <string name="ssh_login">Log in to %1$s</string>
+    <string name="ssh_user">User name</string>
+    <string name="ssh_password">Password</string>
+    <string name="ssh_password_hint">Leave empty to use this phone\'s key</string>
+    <string name="ssh_remember">Remember the password</string>
+    <string name="ssh_connect">Connect</string>
+    <string name="ssh_disconnect">Disconnect</string>
+    <string name="ssh_enter_bot">Enter bot</string>
+    <string name="ssh_paste">Paste</string>
+    <string name="ssh_closed">Disconnected.</string>
+    <string name="ssh_failed">Could not connect: %1$s</string>
+    <string name="ssh_auth_failed">The user name or password was not accepted.</string>
+    <string name="ssh_hostkey_changed">The server\'s key has changed since last time, so the login was stopped. If the server was reinstalled, clear the app\'s data to trust it again.</string>
+    <string name="ssh_key_title">This phone\'s key</string>
+    <string name="ssh_key_hint">Add it to ~/.ssh/authorized_keys on the server to log in without a password.</string>
 </resources>

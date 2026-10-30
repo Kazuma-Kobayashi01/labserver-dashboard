@@ -171,7 +171,7 @@ fun periodLabel(p: Period): String = stringResource(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ConversationRow(
-    c: Conversation, selected: Boolean, busy: Boolean,
+    c: Conversation, selected: Boolean, busy: Boolean, alwaysMore: Boolean = false,
     onOpen: () -> Unit, onRename: () -> Unit, onPin: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -193,11 +193,68 @@ private fun ConversationRow(
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
             )
             if (busy) Box(Modifier.padding(horizontal = 8.dp).size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
-            if (selected) IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
+            if (selected || alwaysMore) IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.chat_more), modifier = Modifier.size(18.dp))
             } else Spacer(Modifier.width(12.dp))
         }
         ConversationMenu(menu, c.pinned, onDismiss = { menu = false }, onRename = onRename, onPin = onPin, onShare = onShare, onDelete = onDelete)
+    }
+}
+
+/**
+ * The chat list behind the top bar's list button: a new-chat row, then this bot's chats (pinned first, then the latest),
+ * each with its own ⋮ for rename, pin, share and delete. Picking one opens it.
+ */
+@Composable
+fun ConversationListMenu(
+    expanded: Boolean,
+    conversations: List<Conversation>,
+    currentId: String,
+    busy: Set<String>,
+    onDismiss: () -> Unit,
+    onNew: () -> Unit,
+    onOpen: (String) -> Unit,
+    onRename: (Conversation) -> Unit,
+    onPin: (Conversation) -> Unit,
+    onShare: (Conversation) -> Unit,
+    onDelete: (Conversation) -> Unit,
+) {
+    DropdownMenu(
+        expanded = expanded, onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp), containerColor = if (isDark()) Color(0xFF26262F) else Color.White, shadowElevation = 18.dp, tonalElevation = 0.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+        modifier = Modifier.width(290.dp).heightIn(max = 460.dp).padding(horizontal = 6.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 46.dp).clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                .pressable { onDismiss(); onNew() }.padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Rounded.EditNote, contentDescription = null, modifier = Modifier.size(20.dp), tint = accentInk(MaterialTheme.colorScheme.primary))
+            Spacer(Modifier.width(10.dp))
+            Text(stringResource(R.string.bot_new_chat), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+        }
+        if (conversations.isEmpty()) Hint(stringResource(R.string.chats_empty))
+        var last: Period? = null
+        for (c in conversations) {
+            val p = periodOf(c)
+            if (p != last) {
+                Text(
+                    periodLabel(p), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 14.dp, top = 10.dp, bottom = 2.dp),
+                )
+                last = p
+            }
+            ConversationRow(
+                c, selected = c.id == currentId, busy = c.id in busy, alwaysMore = true,
+                onOpen = { onDismiss(); onOpen(c.id) },
+                onRename = { onDismiss(); onRename(c) },
+                onPin = { onPin(c) },
+                onShare = { onDismiss(); onShare(c) },
+                onDelete = { onDismiss(); onDelete(c) },
+            )
+        }
     }
 }
 

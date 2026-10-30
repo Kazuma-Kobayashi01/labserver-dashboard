@@ -1,5 +1,7 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.drawWithCache
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -237,35 +239,48 @@ fun neighbour(c: Color, shift: Float = 38f): Color {
 }
 
 /**
- * The background of every screen: the base colour with three soft lights of [accent] (and its neighbours) drifting slowly.
- * The lights only move while [alive]; drawing them is a handful of radial gradients, no blur.
+ * The background of every screen: the base colour with three soft lights of [accent] and its neighbours. It is painted
+ * once into a small bitmap (a quarter of the screen's resolution; soft gradients scale up invisibly) and drawn in a single
+ * pass, instead of a full-screen fill plus three full-screen gradients every frame. With [paint] false it draws nothing
+ * (a screen above paints its own).
  */
 @Composable
-fun AuroraBackground(accent: Color, modifier: Modifier = Modifier, alive: Boolean = true, content: @Composable BoxScope.() -> Unit) {
+fun AuroraBackground(accent: Color, modifier: Modifier = Modifier, @Suppress("UNUSED_PARAMETER") alive: Boolean = false, paint: Boolean = true, content: @Composable BoxScope.() -> Unit) {
     val dark = isDark()
     val base = MaterialTheme.colorScheme.surface
     val a by animateColorAsState(accent, tween(700), label = "aurora a")
-    val b = remember(a) { neighbour(a, 42f) }
-    val c = remember(a) { neighbour(a, -36f) }
     val strength = if (dark) 0.30f else 0.22f
-    val t = if (alive) {
-        val loop = rememberInfiniteTransition(label = "aurora")
-        loop.animateFloat(0f, 1f, infiniteRepeatable(tween(24_000, easing = LinearEasing), RepeatMode.Restart), label = "drift").value
-    } else 0f
-    Box(modifier.background(base)) {
-        Canvas(Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            val tau = (Math.PI * 2).toFloat()
-            fun light(color: Color, cx: Float, cy: Float, r: Float, alpha: Float) {
-                drawCircle(Brush.radialGradient(listOf(color.copy(alpha = alpha), color.copy(alpha = 0f)), center = Offset(cx, cy), radius = r), radius = r, center = Offset(cx, cy))
-            }
-            light(a, w * (0.15f + 0.10f * sin(t * tau)), h * (0.06f + 0.04f * cos(t * tau)), w * 0.95f, strength)
-            light(b, w * (0.95f - 0.12f * cos(t * tau)), h * (0.22f + 0.06f * sin(t * tau * 2)), w * 0.80f, strength * 0.8f)
-            light(c, w * (0.45f + 0.20f * sin(t * tau + 1.7f)), h * (0.92f + 0.04f * cos(t * tau)), w * 0.9f, strength * 0.55f)
-        }
-        content()
-    }
+    Box(
+        modifier.then(
+            if (!paint) Modifier else Modifier.drawWithCache {
+                val scale = 0.25f
+                val bw = (size.width * scale).toInt().coerceAtLeast(1)
+                val bh = (size.height * scale).toInt().coerceAtLeast(1)
+                val image = androidx.compose.ui.graphics.ImageBitmap(bw, bh)
+                val b = neighbour(a, 42f)
+                val c = neighbour(a, -36f)
+                androidx.compose.ui.graphics.drawscope.CanvasDrawScope().draw(
+                    this, layoutDirection, androidx.compose.ui.graphics.Canvas(image), Size(bw.toFloat(), bh.toFloat()),
+                ) {
+                    val w = bw.toFloat()
+                    val h = bh.toFloat()
+                    fun light(color: Color, cx: Float, cy: Float, r: Float, alpha: Float) =
+                        drawCircle(Brush.radialGradient(listOf(color.copy(alpha = alpha), color.copy(alpha = 0f)), center = Offset(cx, cy), radius = r), radius = r, center = Offset(cx, cy))
+                    drawRect(base)
+                    light(a, w * 0.15f, h * 0.08f, w * 0.95f, strength)
+                    light(b, w * 0.92f, h * 0.24f, w * 0.80f, strength * 0.8f)
+                    light(c, w * 0.48f, h * 0.92f, w * 0.9f, strength * 0.55f)
+                }
+                onDrawBehind {
+                    drawImage(
+                        image, dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()),
+                        filterQuality = androidx.compose.ui.graphics.FilterQuality.Low,
+                    )
+                }
+            },
+        ),
+        content = content,
+    )
 }
 
 /** The fill of a glass surface: the base colour, mostly opaque, so text stays easy to read over the aurora. */

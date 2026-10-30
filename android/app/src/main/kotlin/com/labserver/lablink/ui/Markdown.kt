@@ -23,6 +23,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.res.stringResource
+import com.labserver.lablink.R
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -295,10 +300,27 @@ private fun CodeBlock(lang: String, code: String, color: Color) {
                 }
             }
         }
+        // in the shorter display levels a long block shows its first lines until it is opened
+        val fold = LocalChatDetail.current.codeFoldLines
+        val lines = remember(code) { code.trimEnd('\n').count { it == '\n' } + 1 }
+        var expanded by remember(code) { mutableStateOf(false) }
+        val folded = lines > fold && !expanded
         Text(
             shown, color = Code.plain, fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 20.sp,
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 14.dp),
+            maxLines = if (folded) fold else Int.MAX_VALUE,
+            modifier = Modifier.fillMaxWidth().animateContentSize(Springs.soft()).horizontalScroll(rememberScrollState())
+                .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = if (lines > fold) 4.dp else 14.dp),
         )
+        if (lines > fold) Row(
+            Modifier.fillMaxWidth().pressable { expanded = !expanded }.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (folded) stringResource(R.string.code_show_all, lines) else stringResource(R.string.code_show_less),
+                style = MaterialTheme.typography.labelMedium, color = Code.muted, modifier = Modifier.weight(1f),
+            )
+            Icon(if (folded) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess, contentDescription = null, tint = Code.muted, modifier = Modifier.size(18.dp))
+        }
     }
 }
 

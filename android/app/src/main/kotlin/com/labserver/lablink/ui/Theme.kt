@@ -83,3 +83,4 @@ fun LabLinkTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () 
         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides colors.onSurface, content = content)
     }
 }
+

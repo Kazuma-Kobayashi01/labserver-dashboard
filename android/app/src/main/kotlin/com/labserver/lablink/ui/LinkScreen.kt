@@ -58,6 +58,9 @@ import com.labserver.lablink.R
 import com.labserver.lablink.data.Prefs
 import com.labserver.lablink.data.parseWgQuick
 import com.labserver.lablink.labApp
+import com.labserver.lablink.data.ChatDetail
+import androidx.compose.runtime.collectAsState
+import androidx.compose.animation.togetherWith
 import com.labserver.lablink.tunnel.TunnelState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -139,6 +142,29 @@ fun LinkScreen(state: TunnelState, onBack: () -> Unit) {
                         Text(stringResource(R.string.link_auto_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     LabSwitch(checked = auto, onCheckedChange = { auto = it; prefs.autoConnect = it })
+                }
+            }
+
+            // how much of the bots' work replies show, from everything to just the answer
+            val detail by prefs.chatDetail.collectAsState()
+            Section(stringResource(R.string.detail_title)) {
+                SegmentedPills(
+                    listOf(stringResource(R.string.detail_full), stringResource(R.string.detail_standard), stringResource(R.string.detail_compact), stringResource(R.string.detail_minimal)),
+                    selected = detail.ordinal, onSelect = { prefs.setChatDetail(ChatDetail.entries[it]) },
+                )
+                androidx.compose.animation.AnimatedContent(detail, transitionSpec = {
+                    (androidx.compose.animation.fadeIn(Springs.soft()) togetherWith androidx.compose.animation.fadeOut(Springs.snappy()))
+                        .using(androidx.compose.animation.SizeTransform(clip = false) { _, _ -> Springs.soft() })
+                }, label = "detail") { d ->
+                    Text(
+                        stringResource(when (d) {
+                            ChatDetail.Full -> R.string.detail_full_hint
+                            ChatDetail.Standard -> R.string.detail_standard_hint
+                            ChatDetail.Compact -> R.string.detail_compact_hint
+                            ChatDetail.Minimal -> R.string.detail_minimal_hint
+                        }),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 

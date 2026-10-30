@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.labserver.lablink.R
+import com.labserver.lablink.data.ChatDetail
 import com.labserver.lablink.data.ToolRun
 
 /** The command window's colours: a night terminal in dark mode, a white one in light mode. */
@@ -75,9 +76,10 @@ fun ToolCard(run: ToolRun, modifier: Modifier = Modifier) {
         return
     }
     val ctx = LocalContext.current
-    var open by rememberSaveable(run.id) { mutableStateOf(!run.done) }
-    // fold away by itself when it finishes (the reply carries on below it)
-    LaunchedEffect(run.done) { if (run.done) open = false }
+    val detail = LocalChatDetail.current
+    var open by rememberSaveable(run.id, detail) { mutableStateOf(if (run.done) detail.toolStaysOpen else detail.toolOpenWhileRunning) }
+    // fold away by itself when it finishes (the reply carries on below it), unless everything is shown
+    LaunchedEffect(run.done) { if (run.done && !detail.toolStaysOpen) open = false }
     val failed = run.done && ((run.exitCode ?: 0) != 0 || !run.error.isNullOrBlank())
     val turn by animateFloatAsState(if (open) 180f else 0f, label = "chevron")
     Column(
@@ -110,7 +112,7 @@ fun ToolCard(run: ToolRun, modifier: Modifier = Modifier) {
             if (tail.isNotBlank()) Text(tail.trim(), color = if (failed) Term.bad else Term.muted, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 6.dp))
             Icon(Icons.Rounded.ExpandMore, contentDescription = null, tint = Term.muted, modifier = Modifier.size(20.dp).rotate(turn))
         }
-        AnimatedVisibility(open, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        AnimatedVisibility(open, enter = springExpand, exit = springShrink) {
             Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 12.dp)) {
                 if (run.command.isNotBlank()) Row(verticalAlignment = Alignment.Top) {
                     Text(
@@ -136,6 +138,54 @@ fun ToolCard(run: ToolRun, modifier: Modifier = Modifier) {
                             .verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()),
                     )
                     else -> Text(stringResource(R.string.tool_no_output), color = Term.muted.copy(alpha = 0.6f), fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+                }
+            }
+        }
+    }
+}
+
+/** How much of a bot's work replies show (Settings → Conversation display). */
+val LocalChatDetail = androidx.compose.runtime.compositionLocalOf { ChatDetail.Standard }
+
+/**
+ * The tools of one stretch of a reply gathered into a single line ("Ran 3 commands"), for the minimal display: a spinner
+ * while any of them runs, a tick or a cross after; a tap lists them.
+ */
+@Composable
+fun ToolGroup(runs: List<ToolRun>, modifier: Modifier = Modifier) {
+    if (runs.size == 1 && runs[0].tool != "terminal" && runs[0].command.isEmpty()) {
+        ToolChip(runs[0], modifier)
+        return
+    }
+    var open by rememberSaveable(runs.first().id) { mutableStateOf(false) }
+    val busy = runs.any { !it.done }
+    val failed = runs.any { it.done && ((it.exitCode ?: 0) != 0 || !it.error.isNullOrBlank()) }
+    val turn by animateFloatAsState(if (open) 180f else 0f, label = "chevron")
+    Column(modifier.fillMaxWidth()) {
+        Row(
+            Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+                .pressable { open = !open }.padding(start = 12.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            when {
+                busy -> CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 1.8.dp)
+                failed -> Icon(Icons.Rounded.Close, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(15.dp))
+                else -> Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(15.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            Icon(Icons.Rounded.Terminal, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                androidx.compose.ui.res.pluralStringResource(if (busy) R.plurals.tool_group_running else R.plurals.tool_group_done, runs.size, runs.size),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Icon(Icons.Rounded.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 2.dp).size(18.dp).rotate(turn))
+        }
+        AnimatedVisibility(open, enter = springExpand, exit = springShrink) {
+            // opened, the commands show as they would at the standard level
+            androidx.compose.runtime.CompositionLocalProvider(LocalChatDetail provides ChatDetail.Standard) {
+                Column(Modifier.padding(top = 10.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)) {
+                    runs.forEach { ToolCard(it) }
                 }
             }
         }

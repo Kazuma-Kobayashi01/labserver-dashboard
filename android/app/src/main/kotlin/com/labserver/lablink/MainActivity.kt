@@ -20,6 +20,9 @@ class MainActivity : ComponentActivity() {
         val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         val playground = debuggable && intent.getBooleanExtra("orb_playground", false)
         setContent { LabLinkTheme { if (playground) OrbPlayground() else AppRoot() } }
+        // the theme's window background only covers the launch; afterwards every screen paints its own, so painting the
+        // window too would be one more full-screen layer under everything
+        window.decorView.post { window.setBackgroundDrawable(null) }
         // debug builds can show a sample chat: am start ... --ez demo true
         if (debuggable && intent.getBooleanExtra("demo", false)) labApp.chat.showDemo(DemoChat.messages())
         takeShared(intent)

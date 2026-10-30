@@ -1,5 +1,6 @@
 package com.labserver.lablink.ui
 
+import androidx.compose.ui.graphics.graphicsLayer
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import androidx.compose.foundation.layout.Arrangement
@@ -84,7 +85,7 @@ import com.labserver.lablink.labApp
 import com.labserver.lablink.tunnel.TunnelState
 import kotlinx.coroutines.launch
 
-enum class Screen { Chat, HomeLab, Settings, Trash, Library }
+enum class Screen { Chat, HomeLab, Settings, Trash, Library, Terminal }
 
 /**
  * Chat is home (as in Gemini / ChatGPT / Claude); everything else lives in the navigation drawer: the connection
@@ -105,6 +106,8 @@ fun AppRoot() {
     val drawer = rememberDrawerState(DrawerValue.Closed)
     // a panel's WebView needs the edge swipes for itself, so the drawer gesture is off while one is open
     var panelOpen by remember { mutableStateOf(false) }
+    // the bot whose machine the SSH terminal was opened from
+    var terminalBot by remember { mutableStateOf<com.labserver.lablink.data.Bot?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -123,7 +126,7 @@ fun AppRoot() {
     val toggleTunnel = { if (tunnel.isUpOrBusy) app.tunnel.disconnect() else app.tunnel.connect() }
     fun go(to: Screen) {
         screen = to
-        scope.launch { drawer.close() }
+        scope.launch { drawer.animateTo(DrawerValue.Closed, Springs.soft()) }
     }
     val needConnect = stringResource(R.string.panels_need_connect)
     val fullMsg = stringResource(R.string.bots_full, chat.sandboxCount, chat.limit)
@@ -137,11 +140,13 @@ fun AppRoot() {
     // what the sidebar's glass shows through: the whole app behind it
     val appBackdrop = rememberLayerBackdrop()
     // the app is recorded for the sidebar's glass only while the sidebar is open or moving
-    val drawerShown = drawer.currentValue == DrawerValue.Open || drawer.targetValue == DrawerValue.Open || drawer.isAnimationRunning
+    // from the first pixel it moves (not only once it has decided to open), so the glass does not switch on mid-drag
+    val drawerWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) { 312.dp.toPx() }
+    val drawerShown by remember { androidx.compose.runtime.derivedStateOf { drawer.currentOffset.let { !it.isNaN() && it > -drawerWidthPx + 1f } } }
     ModalNavigationDrawer(
         drawerState = drawer,
         scrimColor = Color.Black.copy(alpha = 0.18f),
-        gesturesEnabled = !panelOpen || drawer.isOpen,
+        gesturesEnabled = (!panelOpen && screen != Screen.Terminal) || drawer.isOpen,
         drawerContent = {
             // about four fifths of a phone, so the chat stays in view beside it (as in ChatGPT); the open bot's aurora shows
             // through, the bots are cards, and the places (library, trash, home lab, settings) sit in a bar at the bottom
@@ -155,7 +160,13 @@ fun AppRoot() {
                     Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(start = 10.dp, top = 6.dp, bottom = 10.dp)
                         .liquidGlass(RoundedCornerShape(34.dp), backdrop = appBackdrop.takeIf { drawerShown }, tint = 0.62f, blur = 22.dp, glow = Color(chat.bot.color)),
                 ) {
-                Column(Modifier.fillMaxSize()) {
+                // the content trails the panel on an eased curve: it slides in a little and fades up as the panel comes out
+                Column(Modifier.fillMaxSize().graphicsLayer {
+                    val f = drawer.currentOffset.let { if (it.isNaN()) 0f else (1f + it / drawerWidthPx).coerceIn(0f, 1f) }
+                    val e = androidx.compose.animation.core.FastOutSlowInEasing.transform(f)
+                    translationX = (1f - e) * -48.dp.toPx()
+                    alpha = androidx.compose.animation.core.LinearOutSlowInEasing.transform((f * 1.4f - 0.2f).coerceIn(0f, 1f))
+                }) {
                     Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         BotHero(40.dp, interactive = false)
                         Spacer(Modifier.width(10.dp))
@@ -190,11 +201,11 @@ fun AppRoot() {
                                 if (!open && chat.busy.isNotEmpty() && app.chat.isBusy(bot.id)) {
                                     Box(Modifier.size(8.dp).clip(CircleShape).background(c))
                                 }
-                                IconButton(onClick = { saveError = null; editing = bot; scope.launch { drawer.close() } }, modifier = Modifier.size(38.dp)) {
+                                IconButton(onClick = { saveError = null; editing = bot; scope.launch { drawer.animateTo(DrawerValue.Closed, Springs.soft()) } }, modifier = Modifier.size(38.dp)) {
                                     Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.bots_edit), modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
-                            androidx.compose.animation.AnimatedVisibility(open) {
+                            androidx.compose.animation.AnimatedVisibility(open, enter = springExpand, exit = springShrink) {
                                 Column(Modifier.padding(start = 14.dp, top = 4.dp, bottom = 8.dp)) {
                                     ConversationSection(
                                         conversations = chat.conversations, currentId = chat.conversationId, busy = chat.busy, botName = chat.bot.name,
@@ -205,7 +216,7 @@ fun AppRoot() {
                             }
                         }
                         Row(
-                            Modifier.fillMaxWidth().padding(top = 4.dp).clip(RoundedCornerShape(22.dp)).pressable { newBot(); scope.launch { drawer.close() } }
+                            Modifier.fillMaxWidth().padding(top = 4.dp).clip(RoundedCornerShape(22.dp)).pressable { newBot(); scope.launch { drawer.animateTo(DrawerValue.Closed, Springs.soft()) } }
                                 .padding(start = 10.dp, top = 8.dp, bottom = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -236,7 +247,8 @@ fun AppRoot() {
             }
         },
     ) {
-        AuroraBackground(Color(chat.bot.color), Modifier.fillMaxSize().then(if (drawerShown) Modifier.layerBackdrop(appBackdrop) else Modifier), alive = false) {
+        // the chat paints its own aurora, so this one is left out under it (it would be painted and then covered)
+        AuroraBackground(Color(chat.bot.color), Modifier.fillMaxSize().then(if (drawerShown) Modifier.layerBackdrop(appBackdrop) else Modifier), paint = screen != Screen.Chat) {
         Scaffold(snackbarHost = { SnackbarHost(snackbar) { LabSnackbar(it) } }, containerColor = Color.Transparent) { inner ->
             val ld = androidx.compose.ui.platform.LocalLayoutDirection.current
             fun contentPadding(p: androidx.compose.foundation.layout.PaddingValues) =
@@ -248,11 +260,11 @@ fun AppRoot() {
                 modifier = Modifier.padding(contentPadding(inner)).consumeWindowInsets(contentPadding(inner)),
                 transitionSpec = {
                     val opening = targetState != Screen.Chat
-                    val spring = spring<androidx.compose.ui.unit.IntOffset>(dampingRatio = 0.9f, stiffness = 380f)
+                    // springs throughout: the page arrives with a little momentum and settles, nothing runs on a fixed clock
                     if (opening) {
-                        (slideInHorizontally(spring) { it / 5 } + fadeIn(tween(220))) togetherWith (fadeOut(tween(160)) + scaleOut(tween(220), targetScale = 0.97f))
+                        (slideInHorizontally(Springs.soft()) { it / 4 } + fadeIn(Springs.soft())) togetherWith (fadeOut(Springs.snappy()) + scaleOut(Springs.soft(), targetScale = 0.94f))
                     } else {
-                        (fadeIn(tween(240)) + scaleIn(tween(240), initialScale = 0.97f)) togetherWith (slideOutHorizontally(spring) { it / 5 } + fadeOut(tween(160)))
+                        (fadeIn(Springs.soft()) + scaleIn(Springs.soft(), initialScale = 0.94f)) togetherWith (slideOutHorizontally(Springs.soft()) { it / 4 } + fadeOut(Springs.snappy()))
                     }
                 },
                 label = "screen",
@@ -261,12 +273,14 @@ fun AppRoot() {
                 when (current) {
                     Screen.Chat -> ChatScreen(
                         tunnel,
-                        onOpenDrawer = { scope.launch { drawer.open() } },
+                        onOpenDrawer = { scope.launch { drawer.animateTo(DrawerValue.Open, Springs.soft()) } },
                         onConnect = { app.tunnel.connect() },
                         onOpenSettings = { screen = Screen.Settings },
                         onNewBot = { newBot() },
                         onEditBot = { saveError = null; editing = it },
+                        onOpenTerminal = { terminalBot = it; screen = Screen.Terminal },
                     )
+                    Screen.Terminal -> TerminalScreen(terminalBot ?: app.chat.ui.value.bot, onBack = { screen = Screen.Chat })
                     Screen.HomeLab -> HomeLabScreen(
                         tunnel,
                         onBack = { screen = Screen.Chat },

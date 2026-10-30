@@ -61,6 +61,10 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.outlined.Forum
+import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.StopCircle
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
@@ -140,13 +144,15 @@ fun ChatScreen(
     onOpenSettings: () -> Unit,
     onNewBot: () -> Unit,
     onEditBot: (Bot) -> Unit,
+    onOpenTerminal: (Bot) -> Unit,
 ) {
     val app = LocalContext.current.labApp
     val ui by app.chat.ui.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
     var chatMenu by remember { mutableStateOf(false) }
-    var renaming by remember { mutableStateOf(false) }
-    var deleting by remember { mutableStateOf(false) }
+    var listMenu by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf<com.labserver.lablink.data.Conversation?>(null) }
+    var deleting by remember { mutableStateOf<com.labserver.lablink.data.Conversation?>(null) }
     val speaking by app.speaker.speaking.collectAsStateWithLifecycle()
     var showPicker by remember { mutableStateOf(false) }
     var showModel by remember { mutableStateOf(false) }
@@ -207,7 +213,8 @@ fun ChatScreen(
     var bottomPx by remember { mutableStateOf(0) }
     val topPad = with(density) { topPx.toDp() }
     val bottomPad = with(density) { bottomPx.toDp() }
-    androidx.compose.runtime.CompositionLocalProvider(LocalAccent provides botColor, LocalBackdrop provides backdrop, LocalTilt provides rememberTilt()) {
+    val detail by app.prefs.chatDetail.collectAsStateWithLifecycle()
+    androidx.compose.runtime.CompositionLocalProvider(LocalAccent provides botColor, LocalBackdrop provides backdrop, LocalTilt provides rememberTilt(), LocalChatDetail provides detail) {
     Box(Modifier.fillMaxSize().imePadding()) {
         // the lights hold still: anything moving in this layer would make all the glass above it re-render every frame
         AuroraBackground(botColor, Modifier.fillMaxSize().layerBackdrop(backdrop), alive = false) {
@@ -226,7 +233,7 @@ fun ChatScreen(
                         // the question the bot is waiting on sits under its reply (the list runs bottom up)
                         ui.approval?.let { req ->
                             item(key = "approval-${req.requestId}-${req.runId}") {
-                                ApprovalCard(req, busy = ui.answering, onAnswer = app.chat::answerApproval, modifier = Modifier.animateItem().padding(start = 34.dp))
+                                ApprovalCard(req, busy = ui.answering, onAnswer = app.chat::answerApproval, modifier = Modifier.animateItem(fadeInSpec = Springs.soft(), placementSpec = Springs.soft(), fadeOutSpec = Springs.snappy()).padding(start = 34.dp))
                             }
                         }
                         items(msgs.asReversed(), key = { it.id }) { m ->
@@ -236,7 +243,7 @@ fun ChatScreen(
                                 onRetry = app.chat::regenerate,
                                 onCopy = { copyText(ctx, m.content) },
                                 onEdit = { app.chat.retract(m.id) { text -> input = if (input.isBlank()) text else text + "\n" + input } },
-                                modifier = Modifier.animateItem(),
+                                modifier = Modifier.animateItem(fadeInSpec = Springs.soft(), placementSpec = Springs.soft(), fadeOutSpec = Springs.snappy()),
                             )
                             else BotReply(
                                 m, ui.bot, thinking = last && ui.streaming, working = last && ui.working,
@@ -244,7 +251,7 @@ fun ChatScreen(
                                 speaking = speaking == m.id,
                                 onSpeak = { app.speaker.toggle(m.id, m.content) { android.os.Handler(android.os.Looper.getMainLooper()).post { android.widget.Toast.makeText(ctx, ttsUnavailable, android.widget.Toast.LENGTH_SHORT).show() } } },
                                 onShare = { shareText(ctx, ui.bot.name, m.content) },
-                                modifier = Modifier.animateItem(),
+                                modifier = Modifier.animateItem(fadeInSpec = Springs.soft(), placementSpec = Springs.soft(), fadeOutSpec = Springs.snappy()),
                             )
                         }
                     }
@@ -294,21 +301,27 @@ fun ChatScreen(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // a new chat keeps this one in the history (the drawer), as in ChatGPT
-                GlassIconButton(Icons.Rounded.EditNote, stringResource(R.string.bot_new_chat), app.chat::newConversation, enabled = ui.messages.isNotEmpty())
-                val open = ui.conversation
-                if (open != null) Box {
+                // this bot's chats: start a new one, open, rename, pin, share or delete one
+                Box {
+                    GlassIconButton(Icons.Outlined.Forum, stringResource(R.string.chats_list), { listMenu = true })
+                    ConversationListMenu(
+                        listMenu, ui.conversations, ui.conversationId, ui.busy, onDismiss = { listMenu = false },
+                        onNew = app.chat::newConversation, onOpen = app.chat::openConversation,
+                        onRename = { renaming = it }, onPin = { app.chat.setPinned(it.id, !it.pinned) },
+                        onShare = { shareConversation(app, it, ui.bot.name) }, onDelete = { deleting = it },
+                    )
+                }
+                Box {
                     GlassIconButton(Icons.Rounded.MoreVert, stringResource(R.string.chat_more), { chatMenu = true })
-                    ConversationMenu(
-                        chatMenu, open.pinned, onDismiss = { chatMenu = false },
-                        onRename = { renaming = true }, onPin = { app.chat.setPinned(open.id, !open.pinned) },
-                        onShare = { shareConversation(app, open, ui.bot.name) }, onDelete = { deleting = true },
+                    BotMoreMenu(
+                        chatMenu, onDismiss = { chatMenu = false },
+                        onTerminal = { onOpenTerminal(ui.bot) }, onEditBot = { onEditBot(ui.bot) }, onSettings = onOpenSettings,
                     )
                 }
             }
         }
 
-            AnimatedVisibility(tunnel !is TunnelState.On, enter = expandVertically(), exit = shrinkVertically()) {
+            AnimatedVisibility(tunnel !is TunnelState.On, enter = springExpand, exit = springShrink) {
                 OfflineBanner(tunnel, onConnect)
             }
 
@@ -322,7 +335,7 @@ fun ChatScreen(
                 // jump back to the newest message after scrolling up
                 androidx.compose.animation.AnimatedVisibility(
                     jumpVisible, modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 6.dp),
-                    enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut(),
+                    enter = fadeIn(Springs.snappy()) + scaleIn(Springs.bouncy(), initialScale = 0.4f), exit = fadeOut(Springs.snappy()) + scaleOut(Springs.snappy(), targetScale = 0.6f),
                 ) {
                     GlassIconButton(Icons.Rounded.ArrowDownward, null, { scope.launch { listState.animateScrollToItem(0) } }, size = 42.dp)
                 }
@@ -383,9 +396,34 @@ fun ChatScreen(
             onDismiss = { showPicker = false },
         )
     }
-    ui.conversation?.let { c ->
-        if (renaming) RenameDialog(c.title, onDone = { app.chat.renameConversation(c.id, it); renaming = false }, onDismiss = { renaming = false })
-        if (deleting) DeleteDialog(c.title, onConfirm = { app.chat.deleteConversation(c.id); deleting = false }, onDismiss = { deleting = false })
+    renaming?.let { c -> RenameDialog(c.title, onDone = { app.chat.renameConversation(c.id, it); renaming = null }, onDismiss = { renaming = null }) }
+    deleting?.let { c -> DeleteDialog(c.title, onConfirm = { app.chat.deleteConversation(c.id); deleting = null }, onDismiss = { deleting = null }) }
+}
+
+/** The top bar's ⋮: a terminal on the bot's machine, the bot's own settings, and the app's settings. */
+@Composable
+private fun BotMoreMenu(expanded: Boolean, onDismiss: () -> Unit, onTerminal: () -> Unit, onEditBot: () -> Unit, onSettings: () -> Unit) {
+    androidx.compose.material3.DropdownMenu(
+        expanded = expanded, onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(22.dp), containerColor = if (isDark()) Color(0xFF26262F) else Color.White, shadowElevation = 18.dp, tonalElevation = 0.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+        modifier = Modifier.padding(horizontal = 6.dp),
+    ) {
+        androidx.compose.material3.DropdownMenuItem(
+            text = { Text(stringResource(R.string.ssh_open)) },
+            leadingIcon = { Icon(Icons.Rounded.Terminal, contentDescription = null) },
+            onClick = { onDismiss(); onTerminal() },
+        )
+        androidx.compose.material3.DropdownMenuItem(
+            text = { Text(stringResource(R.string.bot_editor_edit)) },
+            leadingIcon = { Icon(Icons.Rounded.Tune, contentDescription = null) },
+            onClick = { onDismiss(); onEditBot() },
+        )
+        androidx.compose.material3.DropdownMenuItem(
+            text = { Text(stringResource(R.string.nav_settings)) },
+            leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
+            onClick = { onDismiss(); onSettings() },
+        )
     }
 }
 
@@ -560,7 +598,8 @@ private fun BotReply(
     canRegenerate: Boolean, onRegenerate: () -> Unit,
     speaking: Boolean, onSpeak: () -> Unit, onShare: () -> Unit, modifier: Modifier = Modifier,
 ) {
-    var showThoughts by rememberSaveable(m.id) { mutableStateOf(false) }
+    val detail = LocalChatDetail.current
+    var showThoughts by rememberSaveable(m.id, detail) { mutableStateOf(detail.thoughtsOpen) }
     Column(modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             BotAvatar(26.dp, color = Color(bot.color), mood = orbMood(thinking, working, m.content.isNotBlank()), talk = m.content.length / 16)
@@ -570,7 +609,7 @@ private fun BotReply(
             )
         }
         Column(Modifier.padding(start = 34.dp, top = 6.dp)) {
-            if (m.reasoning.isNotBlank()) {
+            if (m.reasoning.isNotBlank() && detail.showThoughts) {
                 Box(
                     Modifier.padding(bottom = 10.dp).pressable { showThoughts = !showThoughts }
                         .glass(RoundedCornerShape(18.dp), elevation = 0.dp),
@@ -584,7 +623,7 @@ private fun BotReply(
                             )
                             Icon(if (showThoughts) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = null, modifier = Modifier.size(18.dp))
                         }
-                        AnimatedVisibility(showThoughts) {
+                        AnimatedVisibility(showThoughts, enter = springExpand, exit = springShrink) {
                             Text(
                                 m.reasoning,
                                 style = MaterialTheme.typography.bodySmall,
@@ -785,14 +824,29 @@ private fun copyText(ctx: android.content.Context, text: String) {
 @Composable
 private fun ReplyBody(content: String, botId: String, tools: List<ToolRun> = emptyList()) {
     // the words, with each command window between the words it came between
-    val pieces = remember(content, tools) { interleave(content, tools) }
+    val group = LocalChatDetail.current.groupTools
+    val pieces = remember(content, tools, group) { interleave(content, tools).let { if (group) gatherTools(it) else it } }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         for (piece in pieces) when (piece) {
             is ToolRun -> ToolCard(piece)
+            is ToolBatch -> ToolGroup(piece.runs)
             is ReplyPart.Text -> SelectionContainer { MarkdownText(piece.markdown, MaterialTheme.colorScheme.onSurface) }
             is ReplyPart.Image -> ReplyImage(piece.src, botId, piece.alt)
         }
     }
+}
+
+/** Tool runs that came one after another, shown as one line in the minimal display. */
+private class ToolBatch(val runs: List<ToolRun>)
+
+/** Folds each run of consecutive [ToolRun]s in [pieces] into one [ToolBatch]. */
+private fun gatherTools(pieces: List<Any>): List<Any> {
+    val out = ArrayList<Any>()
+    var batch = ArrayList<ToolRun>()
+    fun flush() { if (batch.isNotEmpty()) { out.add(ToolBatch(batch)); batch = ArrayList() } }
+    for (p in pieces) if (p is ToolRun) batch.add(p) else { flush(); out.add(p) }
+    flush()
+    return out
 }
 
 /** The reply cut at the places its tools ran: text parts (and pictures) and tool runs, in order. */

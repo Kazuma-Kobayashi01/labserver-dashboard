@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">LabLink</string>
+    <string name="app_name">Lab bot</string>
 
     <string name="tab_bot">Lab bot</string>
     <string name="tab_panels">面板</string>
@@ -281,4 +281,41 @@
     <string name="tool_exit">退出码 %1$d</string>
     <string name="tool_no_output">（没有输出）</string>
     <string name="tool_copy">复制命令</string>
+    <!-- conversation display -->
+    <string name="detail_title">对话显示</string>
+    <string name="detail_full">详细</string>
+    <string name="detail_standard">标准</string>
+    <string name="detail_compact">简洁</string>
+    <string name="detail_minimal">简约</string>
+    <string name="detail_full_hint">默认展开思考过程，命令窗口全部展开并保持打开，代码完整显示。</string>
+    <string name="detail_standard_hint">思考过程折叠；命令运行时展开，运行完自动折叠。</string>
+    <string name="detail_compact_hint">命令运行时也只显示一行；较长的代码折叠。</string>
+    <string name="detail_minimal_hint">只看回答：隐藏思考过程，命令合并成一行，代码折叠。</string>
+    <string name="code_show_all">展开全部 %1$d 行</string>
+    <string name="code_show_less">收起</string>
+    <plurals name="tool_group_running">
+        <item quantity="other">正在运行 %1$d 条命令…</item>
+    </plurals>
+    <plurals name="tool_group_done">
+        <item quantity="other">运行了 %1$d 条命令</item>
+    </plurals>
+    <string name="chats_list">对话列表</string>
+    <!-- SSH terminal -->
+    <string name="ssh_open">远程 SSH</string>
+    <string name="ssh_title">终端</string>
+    <string name="ssh_login">登录 %1$s</string>
+    <string name="ssh_user">用户名</string>
+    <string name="ssh_password">密码</string>
+    <string name="ssh_password_hint">留空则使用本机密钥</string>
+    <string name="ssh_remember">记住密码</string>
+    <string name="ssh_connect">连接</string>
+    <string name="ssh_disconnect">断开</string>
+    <string name="ssh_enter_bot">进入 Bot</string>
+    <string name="ssh_paste">粘贴</string>
+    <string name="ssh_closed">已断开。</string>
+    <string name="ssh_failed">连接失败：%1$s</string>
+    <string name="ssh_auth_failed">用户名或密码不对。</string>
+    <string name="ssh_hostkey_changed">服务器的密钥和上次不一样，已停止登录。如果服务器重装过，清除 App 数据后会重新信任。</string>
+    <string name="ssh_key_title">本机密钥</string>
+    <string name="ssh_key_hint">把它加到服务器的 ~/.ssh/authorized_keys，之后不用密码就能登录。</string>
 </resources>

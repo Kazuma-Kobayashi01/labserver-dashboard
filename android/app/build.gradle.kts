@@ -60,6 +60,8 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
     implementation(libs.backdrop)
+    implementation(libs.jsch)
+    implementation(libs.termlib)
     implementation(libs.compose.material.icons.extended)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
