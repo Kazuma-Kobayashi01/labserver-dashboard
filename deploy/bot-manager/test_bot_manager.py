@@ -420,6 +420,19 @@ class Api(Base):
         self.assertEqual((path, auth), ("/p/labbot/v1/chat/completions", "Bearer lab-key"))
         self.assertEqual(sent["messages"], [{"role": "system", "content": "be kind"}, {"role": "user", "content": "hi"}])
 
+    def test_fast_mode_only_for_models_that_have_one(self):
+        models = json.loads(self.call("GET", "/m/v1/models")[1])["providers"]
+        fast = {(p["id"], m["id"]): m["fast"] for p in models for m in p["models"]}
+        self.assertEqual(fast, {("deepseek", "deepseek-flash"): False, ("openai-codex", "gpt-5.6-sol"): True})
+        b = self.make("A")
+        ask = {"messages": [{"role": "user", "content": "hi"}], "modelProvider": "openai-codex", "modelId": "gpt-5.6-sol", "reasoning": "xhigh", "fast": True}
+        self.call("POST", f"/m/v1/bots/{b['id']}/chat/completions", ask)
+        self.assertEqual(Upstream.seen[-1][2]["model_options"], {"reasoning": {"enabled": True, "effort": "xhigh"}, "fast": True})
+        self.assertNotIn("fast", Upstream.seen[-1][2])
+        # a model without a fast tier just runs normally
+        self.call("POST", f"/m/v1/bots/{b['id']}/chat/completions", {**ask, "modelProvider": "deepseek", "modelId": "deepseek-flash", "reasoning": "high"})
+        self.assertNotIn("fast", Upstream.seen[-1][2]["model_options"])
+
     def test_chat_asks_for_markdown_only_when_the_app_does(self):
         b = self.make("A")
         self.call("POST", f"/m/v1/bots/{b['id']}/chat/completions", {"messages": [{"role": "user", "content": "hi"}], "markdown": True})
@@ -736,6 +749,49 @@ class SandboxChoice(Base):
         os.makedirs(os.path.join(self.cfg.profiles, "labbot"))
         argv, cwd = self.mgr.shell_argv("labbot")
         self.assertEqual((argv[0], argv[-1], cwd), ("ssh", bm.ADMIN_SSH_HOST, None))
+
+
+class ChatSync(Base):
+    """Chats shared between the apps: stored per bot, the newest edit wins, deletions travel as tombstones."""
+
+    def conv(self, cid, updated, title="t"):
+        return {"conversation": {"id": cid, "title": title, "created": 1, "updated": updated, "pinned": False, "renamed": False},
+                "messages": [{"id": "m1", "role": "user", "content": "hi", "time": 1}]}
+
+    def test_store_list_get_and_the_newest_edit_wins(self):
+        os.makedirs(os.path.join(self.cfg.profiles, "labbot"))
+        s, b = self.call("PUT", "/m/v1/chats/labbot/C-1", self.conv("C-1", 100))
+        self.assertEqual((s, json.loads(b)["stored"]), (200, True))
+        # an older copy from another device does not overwrite it; the newer one comes back instead
+        s, b = self.call("PUT", "/m/v1/chats/labbot/C-1", self.conv("C-1", 50, "old"))
+        self.assertEqual((json.loads(b)["stored"], json.loads(b)["conversation"]["title"]), (False, "t"))
+        self.call("PUT", "/m/v1/chats/labbot/C-1", self.conv("C-1", 200, "newer"))
+        listed = json.loads(self.call("GET", "/m/v1/chats/labbot")[1])["conversations"]
+        self.assertEqual([(c["id"], c["title"], c["updated"]) for c in listed], [("C-1", "newer", 200)])
+        got = json.loads(self.call("GET", "/m/v1/chats/labbot/C-1")[1])
+        self.assertEqual(got["messages"][0]["content"], "hi")
+
+    def test_a_deletion_reaches_the_other_devices(self):
+        os.makedirs(os.path.join(self.cfg.profiles, "labbot"))
+        self.call("PUT", "/m/v1/chats/labbot/c2", self.conv("c2", 100))
+        self.assertEqual(self.call("DELETE", "/m/v1/chats/labbot/c2")[0], 200)
+        listed = json.loads(self.call("GET", "/m/v1/chats/labbot")[1])["conversations"]
+        self.assertTrue(listed[0]["deleted"])
+        # a device that still had it, with an older edit, cannot bring it back
+        self.assertFalse(json.loads(self.call("PUT", "/m/v1/chats/labbot/c2", self.conv("c2", 150))[1])["stored"])
+
+    def test_only_known_bots_with_the_key_and_sane_input(self):
+        b = self.make("A")
+        self.assertEqual(self.call("PUT", f"/m/v1/chats/{b['id']}/x", self.conv("x", 1))[0], 200)
+        self.assertEqual(self.call("GET", "/m/v1/chats/bluefish")[0], 404)
+        self.assertEqual(self.call("GET", f"/m/v1/chats/{b['id']}", key="wrong" * 6)[0], 401)
+        bad = self.conv("y", 1); bad["conversation"]["updated"] = "soon"
+        self.assertEqual(self.call("PUT", f"/m/v1/chats/{b['id']}/y", bad)[0], 400)
+        self.assertEqual(self.call("PUT", f"/m/v1/chats/{b['id']}/a.b", self.conv("a", 1))[0], 404)
+        # a bot removed for good takes its shared chats with it
+        self.call("DELETE", f"/m/v1/bots/{b['id']}")
+        self.call("DELETE", f"/m/v1/bots/{b['id']}?purge=1")
+        self.assertFalse(os.path.exists(self.mgr.chat_dir(b["id"])))
 
 
 if __name__ == "__main__":

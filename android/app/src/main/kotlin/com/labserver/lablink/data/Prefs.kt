@@ -75,11 +75,11 @@ class Prefs(context: Context) {
     /** The model picked in the chat for [botId] (empty = the bot's own default). Kept per bot, until it is changed. */
     fun pick(botId: String): ModelPick {
         val parts = (sp.getString("pick.$botId", "") ?: "").split('|')
-        return if (parts.size == 3) ModelPick(parts[0], parts[1], parts[2]) else ModelPick()
+        return if (parts.size >= 3) ModelPick(parts[0], parts[1], parts[2], fast = parts.getOrNull(3) == "fast") else ModelPick()
     }
 
     fun setPick(botId: String, p: ModelPick) {
-        sp.edit().apply { if (p.isDefault) remove("pick.$botId") else putString("pick.$botId", "${p.provider}|${p.model}|${p.reasoning}") }.apply()
+        sp.edit().apply { if (p.isDefault) remove("pick.$botId") else putString("pick.$botId", "${p.provider}|${p.model}|${p.reasoning}" + if (p.fast) "|fast" else "") }.apply()
     }
 
     /** Bring the tunnel up as soon as the app opens. */

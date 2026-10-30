@@ -62,6 +62,14 @@ final class AppModel {
         if let c = Disk.load(Catalog.self, Disk.root.appendingPathComponent("catalog.json")) { catalog = c }
         select(settings.currentBotID)
         Task { await refresh() }
+        // chats continued on another device (the phone) show up here: every 20 s while the app is in front
+        Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(20))
+                guard let self, NSApp.isActive, !self.needsSetup else { continue }
+                await self.syncChats()
+            }
+        }
     }
 
     // MARK: bots
@@ -81,6 +89,7 @@ final class AppModel {
             }
             // the open bot may have been changed (or removed) elsewhere
             if let b = bots.first(where: { $0.id == bot.id }) { bot = b } else { select(defaultBotID) }
+            await syncChats()
         } catch let e as ServerError {
             serverError = e
         } catch {
@@ -98,6 +107,7 @@ final class AppModel {
         conversations = sorted(Disk.conversations(b.id))
         let last = settings.lastConversation(b.id)
         if conversations.contains(where: { $0.id == last }) { open(last) } else { newConversation() }
+        if !needsSetup { Task { await syncChats() } }
     }
 
     func createBot(_ b: Bot) async throws {
@@ -146,14 +156,18 @@ final class AppModel {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         conversations[i].title = t.isEmpty ? titleFrom(Disk.messages(bot.id, id)) : t
         conversations[i].renamed = !t.isEmpty
+        conversations[i].updated = Date()   // so the other devices take the new name
         Disk.saveConversations(bot.id, conversations)
+        share(bot, id)
     }
 
     func setPinned(_ id: String, _ on: Bool) {
         guard let i = conversations.firstIndex(where: { $0.id == id }) else { return }
         conversations[i].pinned = on
+        conversations[i].updated = Date()
         conversations = sorted(conversations)
         Disk.saveConversations(bot.id, conversations)
+        share(bot, id)
     }
 
     func deleteConversation(_ id: String) {
@@ -162,6 +176,9 @@ final class AppModel {
         Disk.saveConversations(bot.id, conversations)
         Disk.deleteConversation(bot.id, id)
         if conversationID == id { newConversation() }
+        // the other devices drop it too
+        let profile = bot.profile
+        Task { try? await Manager.current.chatDelete(profile: profile, id: id) }
     }
 
     /// A chat as Markdown, for saving or sharing.
@@ -194,6 +211,63 @@ final class AppModel {
         Disk.saveConversations(botID, index)
         if botID == bot.id { conversations = index }
         settings.setLastConversation(botID, convID)
+        if let b = bots.first(where: { $0.id == botID }) { share(b, convID) }
+    }
+
+    // MARK: chats shared with the other apps (the phone) through the bot-manager
+
+    /// Sends this Mac's copy of a chat to the server (unless a reply is still coming in); the newest edit wins there.
+    private func share(_ b: Bot, _ convID: String) {
+        guard !busy.contains(convID), !needsSetup,
+              let c = (b.id == bot.id ? conversations : Disk.conversations(b.id)).first(where: { $0.id == convID }) else { return }
+        let messages = Disk.messages(b.id, convID)
+        guard !messages.isEmpty, let body = ChatWire.encode(c, messages) else { return }
+        Task { try? await Manager.current.chatPut(profile: b.profile, id: convID, body: body) }
+    }
+
+    /// Brings the open bot's chats in line with the server: newer copies and deletions from another device come in, chats
+    /// only this Mac has (or has newer) go up. A chat with a reply coming in is left alone until it is done.
+    func syncChats() async {
+        // every bot's chats (the server keeps them all), the open bot first
+        for b in [bot] + bots.filter({ $0.id != bot.id }) { await syncBot(b) }
+    }
+
+    private func syncBot(_ b: Bot) async {
+        guard let remote = try? await Manager.current.chatList(profile: b.profile) else { return }
+        var index = Disk.conversations(b.id)
+        var changed = false, openChanged = false
+        for r in remote where !busy.contains(r.id) {
+            let local = index.first { $0.id == r.id }
+            let localMs = local.map { ChatWire.ms($0.updated) } ?? -1
+            if r.deleted {
+                if local != nil, localMs <= r.updated {
+                    index.removeAll { $0.id == r.id }
+                    Disk.deleteConversation(b.id, r.id)
+                    changed = true
+                    if r.id == conversationID { openChanged = true }
+                }
+                continue
+            }
+            guard r.updated > localMs, let data = try? await Manager.current.chatGet(profile: b.profile, id: r.id),
+                  let (c, messages) = ChatWire.decode(data) else { continue }
+            Disk.saveMessages(b.id, c.id, messages)
+            index.removeAll { $0.id == c.id }
+            index.append(c)
+            changed = true
+            if r.id == conversationID { openChanged = true }
+        }
+        if changed { Disk.saveConversations(b.id, index) }
+        let byID = Dictionary(remote.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for c in index {
+            let r = byID[c.id]
+            if r == nil || (r!.deleted == false && ChatWire.ms(c.updated) > r!.updated) { share(b, c.id) }
+        }
+        guard changed, bot.id == b.id else { return }
+        conversations = sorted(index)
+        if openChanged && !busy.contains(conversationID) {
+            if conversations.contains(where: { $0.id == conversationID }) { messages = Disk.messages(b.id, conversationID) }
+            else { newConversation() }
+        }
     }
 
     // MARK: sending
@@ -317,11 +391,12 @@ final class AppModel {
             var final = history
             if !empty { final.append(r) } else if failed, var last = final.popLast() { last.failed = true; final.append(last) }
             Disk.saveMessages(b.id, convID, final)
-            self.touch(b.id, convID, final)
             self.live[convID] = nil
             self.tasks[convID] = nil
             self.busy.remove(convID)
             self.busyOwner[convID] = nil
+            // after the busy mark is gone, so the finished chat is shared
+            self.touch(b.id, convID, final)
             self.working.remove(convID)
             self.waiting[convID] = nil
             if self.conversationID == convID && self.bot.id == b.id { self.messages = final }

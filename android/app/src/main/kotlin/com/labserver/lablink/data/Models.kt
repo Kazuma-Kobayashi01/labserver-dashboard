@@ -7,7 +7,10 @@ import java.io.File
 
 /** What the server offers: models by provider (DeepSeek, ChatGPT...) and the thinking levels each one accepts. */
 @Serializable
-data class ModelInfo(val id: String, val name: String, val efforts: List<String> = emptyList())
+data class ModelInfo(val id: String, val name: String, val efforts: List<String> = emptyList(), val fast: Boolean = false) {
+    /** The deepest thinking level this model has (shown as "Ultra"). */
+    val top: String get() = EFFORT_ORDER.lastOrNull { it in efforts } ?: ""
+}
 
 @Serializable
 data class ProviderInfo(val id: String, val name: String, val models: List<ModelInfo> = emptyList())
@@ -22,7 +25,7 @@ data class Catalog(val providers: List<ProviderInfo> = emptyList()) {
 
 /** A choice of model and thinking level. Empty = "whatever the bot or the server defaults to". */
 @Serializable
-data class ModelPick(val provider: String = "", val model: String = "", val reasoning: String = "") {
+data class ModelPick(val provider: String = "", val model: String = "", val reasoning: String = "", val fast: Boolean = false) {
     val isDefault: Boolean get() = provider.isEmpty() || model.isEmpty()
 }
 

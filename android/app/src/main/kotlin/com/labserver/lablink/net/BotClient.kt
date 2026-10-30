@@ -281,12 +281,15 @@ class BotClient(
             if (sandbox) {
                 body.put("modelProvider", pick.provider).put("modelId", pick.model)
                 if (pick.reasoning.isNotEmpty()) body.put("reasoning", pick.reasoning)
+                if (pick.fast) body.put("fast", true)
             } else {
                 body.put("provider", pick.provider).put("model", pick.model)
+                val opts = JSONObject()
                 if (pick.reasoning.isNotEmpty()) {
-                    val r = if (pick.reasoning == "none") JSONObject().put("enabled", false) else JSONObject().put("enabled", true).put("effort", pick.reasoning)
-                    body.put("model_options", JSONObject().put("reasoning", r))
+                    opts.put("reasoning", if (pick.reasoning == "none") JSONObject().put("enabled", false) else JSONObject().put("enabled", true).put("effort", pick.reasoning))
                 }
+                if (pick.fast) opts.put("fast", true)
+                if (opts.length() > 0) body.put("model_options", opts)
             }
         }
     }

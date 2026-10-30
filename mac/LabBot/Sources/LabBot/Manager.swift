@@ -123,6 +123,24 @@ struct Manager {
         return try await send(request("GET", "/media" + (c.percentEncodedQuery.map { "?" + $0 } ?? "")))
     }
 
+    // MARK: chats shared with the other apps
+
+    struct RemoteChat { var id: String; var updated: Int64; var deleted: Bool }
+
+    func chatList(profile: String) async throws -> [RemoteChat] {
+        let o = json(try await send(request("GET", "/chats/\(profile)")))
+        return (o["conversations"] as? [[String: Any]] ?? []).compactMap { c in
+            guard let id = c["id"] as? String else { return nil }
+            return RemoteChat(id: id, updated: (c["updated"] as? NSNumber)?.int64Value ?? 0, deleted: c["deleted"] as? Bool ?? false)
+        }
+    }
+
+    func chatGet(profile: String, id: String) async throws -> Data { try await send(request("GET", "/chats/\(profile)/\(id)")) }
+
+    func chatPut(profile: String, id: String, body: Data) async throws { _ = try await send(request("PUT", "/chats/\(profile)/\(id)", body: body)) }
+
+    func chatDelete(profile: String, id: String) async throws { _ = try await send(request("DELETE", "/chats/\(profile)/\(id)")) }
+
     // MARK: chat
 
     enum Event {
@@ -140,6 +158,7 @@ struct Manager {
             body["modelProvider"] = pick.provider
             body["modelId"] = pick.model
             if !pick.reasoning.isEmpty { body["reasoning"] = pick.reasoning }
+            if pick.fast { body["fast"] = true }
         }
         if markdown { body["markdown"] = true }
         var r = try request("POST", "/bots/\(profile)/chat/completions", body: try JSONSerialization.data(withJSONObject: body))

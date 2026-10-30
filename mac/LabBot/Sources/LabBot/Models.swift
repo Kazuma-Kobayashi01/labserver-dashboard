@@ -45,20 +45,49 @@ struct ModelPick: Codable, Hashable {
     var provider: String = ""
     var model: String = ""
     var reasoning: String = ""
+    /// The provider's priority tier (Fast), for the models that have one.
+    var fast: Bool = false
     var isDefault: Bool { provider.isEmpty || model.isEmpty }
+
+    init(provider: String = "", model: String = "", reasoning: String = "", fast: Bool = false) {
+        self.provider = provider; self.model = model; self.reasoning = reasoning; self.fast = fast
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        provider = try c.decodeIfPresent(String.self, forKey: .provider) ?? ""
+        model = try c.decodeIfPresent(String.self, forKey: .model) ?? ""
+        reasoning = try c.decodeIfPresent(String.self, forKey: .reasoning) ?? ""
+        fast = try c.decodeIfPresent(Bool.self, forKey: .fast) ?? false
+    }
 }
 
 /// What the server offers: providers, their models and the thinking levels each takes.
 struct Catalog: Codable, Hashable {
-    struct Model: Codable, Hashable, Identifiable { var id: String; var name: String; var efforts: [String] = [] }
+    struct Model: Codable, Hashable, Identifiable {
+        var id: String; var name: String; var efforts: [String] = []
+        /// Whether it has a fast mode (the provider's priority tier).
+        var fast: Bool = false
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            name = try c.decodeIfPresent(String.self, forKey: .name) ?? id
+            efforts = try c.decodeIfPresent([String].self, forKey: .efforts) ?? []
+            fast = try c.decodeIfPresent(Bool.self, forKey: .fast) ?? false
+        }
+    }
     struct Provider: Codable, Hashable, Identifiable { var id: String; var name: String; var models: [Model] }
     var providers: [Provider] = []
 
     func label(_ p: ModelPick) -> String {
         guard !p.isDefault else { return L.t("model.default") }
         let m = providers.first { $0.id == p.provider }?.models.first { $0.id == p.model }
-        let name = m?.name ?? p.model
-        return p.reasoning.isEmpty ? name : "\(name) · \(L.t("effort.\(p.reasoning)"))"
+        let name = (p.fast && m?.fast == true ? "⚡ " : "") + (m?.name ?? p.model)
+        if p.reasoning.isEmpty { return name }
+        // the model's deepest level is "Ultra"
+        let top = effortOrder.last { m?.efforts.contains($0) == true }
+        return (m?.efforts.count ?? 0) > 1 && p.reasoning == top ? "\(name) Ultra" : "\(name) · \(L.t("effort.\(p.reasoning)"))"
     }
 }
 
@@ -93,6 +122,19 @@ struct Attachment: Codable, Hashable, Identifiable {
     var remotePath: String = ""
 }
 
+extension Attachment {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        name = try c.decode(String.self, forKey: .name)
+        mime = try c.decodeIfPresent(String.self, forKey: .mime) ?? "application/octet-stream"
+        size = try c.decodeIfPresent(Int.self, forKey: .size) ?? 0
+        kind = Kind(rawValue: (try c.decodeIfPresent(String.self, forKey: .kind) ?? "file").lowercased()) ?? .file
+        local = try c.decodeIfPresent(String.self, forKey: .local) ?? ""
+        remotePath = try c.decodeIfPresent(String.self, forKey: .remotePath) ?? ""
+    }
+}
+
 struct ChatMessage: Codable, Hashable, Identifiable {
     var id: String = UUID().uuidString
     var role: String   // "user" | "assistant"
@@ -104,6 +146,74 @@ struct ChatMessage: Codable, Hashable, Identifiable {
     var failed: Bool = false
     var thinkingMs: Int = 0
     var tools: [ToolRun] = []
+}
+
+extension ChatMessage {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        role = try c.decode(String.self, forKey: .role)
+        content = try c.decodeIfPresent(String.self, forKey: .content) ?? ""
+        reasoning = try c.decodeIfPresent(String.self, forKey: .reasoning) ?? ""
+        time = try c.decodeIfPresent(Date.self, forKey: .time) ?? Date()
+        attachments = try c.decodeIfPresent([Attachment].self, forKey: .attachments) ?? []
+        failed = try c.decodeIfPresent(Bool.self, forKey: .failed) ?? false
+        thinkingMs = try c.decodeIfPresent(Int.self, forKey: .thinkingMs) ?? 0
+        tools = try c.decodeIfPresent([ToolRun].self, forKey: .tools) ?? []
+    }
+}
+
+extension ToolRun {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        tool = try c.decodeIfPresent(String.self, forKey: .tool) ?? "terminal"
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        command = try c.decodeIfPresent(String.self, forKey: .command) ?? ""
+        output = try c.decodeIfPresent(String.self, forKey: .output) ?? ""
+        exitCode = try c.decodeIfPresent(Int.self, forKey: .exitCode)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+        durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
+        done = try c.decodeIfPresent(Bool.self, forKey: .done) ?? false
+        at = try c.decodeIfPresent(Int.self, forKey: .at) ?? 0
+    }
+}
+
+/// A chat as the apps share it through the bot-manager: times in milliseconds, attachments by name and kind only (the
+/// file stays on the device that sent it).
+enum ChatWire {
+    private static let enc: JSONEncoder = { let e = JSONEncoder(); e.dateEncodingStrategy = .millisecondsSince1970; return e }()
+    private static let dec: JSONDecoder = { let d = JSONDecoder(); d.dateDecodingStrategy = .millisecondsSince1970; return d }()
+
+    static func encode(_ c: Conversation, _ messages: [ChatMessage]) -> Data? {
+        guard let data = try? enc.encode(messages), var list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
+        for i in list.indices {
+            // whole milliseconds, as the phone reads them
+            if let t = list[i]["time"] as? Double { list[i]["time"] = Int64(t.rounded()) }
+            if var atts = list[i]["attachments"] as? [[String: Any]] {
+                for j in atts.indices { atts[j]["local"] = nil }
+                list[i]["attachments"] = atts
+            }
+        }
+        let conv: [String: Any] = ["id": c.id, "title": c.title, "created": ms(c.created), "updated": ms(c.updated), "pinned": c.pinned, "renamed": c.renamed]
+        return try? JSONSerialization.data(withJSONObject: ["conversation": conv, "messages": list])
+    }
+
+    static func decode(_ data: Data) -> (Conversation, [ChatMessage])? {
+        guard let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let c = o["conversation"] as? [String: Any],
+              let conv = conversation(c), let raw = try? JSONSerialization.data(withJSONObject: o["messages"] ?? []),
+              let messages = try? dec.decode([ChatMessage].self, from: raw) else { return nil }
+        return (conv, messages)
+    }
+
+    static func conversation(_ c: [String: Any]) -> Conversation? {
+        guard let id = c["id"] as? String else { return nil }
+        func date(_ k: String) -> Date { Date(timeIntervalSince1970: Double((c[k] as? NSNumber)?.int64Value ?? 0) / 1000) }
+        return Conversation(id: id, title: c["title"] as? String ?? "", created: date("created"), updated: date("updated"),
+                            pinned: c["pinned"] as? Bool ?? false, renamed: c["renamed"] as? Bool ?? false)
+    }
+
+    static func ms(_ d: Date) -> Int64 { Int64((d.timeIntervalSince1970 * 1000).rounded()) }
 }
 
 struct Conversation: Codable, Hashable, Identifiable {

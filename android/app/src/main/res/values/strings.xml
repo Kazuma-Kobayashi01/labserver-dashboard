@@ -319,4 +319,5 @@
     <string name="bot_sandbox_off_hint">Off: it talks, searches the web and looks at pictures, but runs no commands and has no terminal. Chosen once, when the bot is made.</string>
     <string name="bot_sandbox_none">No sandbox: it runs no commands and has no terminal.</string>
     <string name="approval_title_system">Allow %1$s to change the server (services, containers, system settings)?</string>
+    <string name="model_fast">Fast (priority tier; uses quota faster)</string>
 </resources>

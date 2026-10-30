@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 struct Composer: View {
     @Environment(AppModel.self) private var app
     @Binding var input: String
+    @Binding var showPicker: Bool
     @FocusState private var focused: Bool
     @State private var picking = false
     @State private var dropping = false
@@ -32,9 +33,7 @@ struct Composer: View {
                         .background(Color.primary.opacity(0.07), in: Circle()).contentShape(Circle())
                 }
                 .buttonStyle(.plain).help(L.t("composer.attach"))
-                ModelMenu()
-                    .padding(.horizontal, 10).frame(height: 30)
-                    .background(Color.primary.opacity(0.07), in: Capsule())
+                ModelButton(open: $showPicker)
                 Spacer()
                 if app.streaming {
                     Button(action: app.stop) { Image(systemName: "stop.fill").font(.callout).frame(width: 30, height: 30) }
@@ -112,41 +111,5 @@ struct RoundButton: ButtonStyle {
             .background(LinearGradient(colors: [color, color.mix(.purple, glow ? 0.3 : 0)], startPoint: .topLeading, endPoint: .bottomTrailing), in: Circle())
             .shadow(color: glow ? color.opacity(0.4) : .clear, radius: 6, y: 2)
             .scaleEffect(configuration.isPressed ? 0.9 : 1).animation(.spring(duration: 0.2, bounce: 0.5), value: configuration.isPressed)
-    }
-}
-
-/// The model and thinking level for this chat; the bot's own default comes first.
-struct ModelMenu: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        Menu {
-            Button {
-                app.setPick(ModelPick())
-            } label: {
-                Label(L.t("model.default") + (app.bot.pick.isDefault ? "" : " (\(app.catalog.label(app.bot.pick)))"), systemImage: app.pick.isDefault ? "checkmark" : "")
-            }
-            ForEach(app.catalog.providers) { prov in
-                Section(prov.name) {
-                    ForEach(prov.models) { m in
-                        if m.efforts.isEmpty {
-                            pickButton(m.name, ModelPick(provider: prov.id, model: m.id))
-                        } else {
-                            Menu(m.name) {
-                                ForEach(m.efforts, id: \.self) { e in pickButton(L.t("effort.\(e)"), ModelPick(provider: prov.id, model: m.id, reasoning: e)) }
-                            }
-                        }
-                    }
-                }
-            }
-        } label: {
-            Text(app.catalog.label(app.effectivePick)).font(.callout)
-        }
-        .menuStyle(.borderlessButton).fixedSize()
-        .help(L.t("model.title"))
-    }
-
-    private func pickButton(_ title: String, _ p: ModelPick) -> some View {
-        Button { app.setPick(p) } label: { Label(title, systemImage: app.pick == p ? "checkmark" : "") }
     }
 }

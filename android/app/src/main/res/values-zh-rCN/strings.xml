@@ -317,4 +317,5 @@
     <string name="bot_sandbox_off_hint">关闭时只能聊天、联网搜索和看图片，不能运行命令，也没有终端。只能在创建时选择。</string>
     <string name="bot_sandbox_none">没有沙盒：不能运行命令，也没有终端。</string>
     <string name="approval_title_system">允许 %1$s 改动服务器（服务、容器、系统设置）吗？</string>
+    <string name="model_fast">Fast 模式（优先通道，额度用得更快）</string>
 </resources>

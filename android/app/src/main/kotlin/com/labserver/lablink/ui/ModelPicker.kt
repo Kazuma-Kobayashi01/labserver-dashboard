@@ -68,6 +68,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -92,12 +93,27 @@ fun effortLabel(effort: String): String = when (effort) {
     else -> stringResource(R.string.model_effort_auto)
 }
 
-/** "GPT-5.6 Sol · High", or "Default" when nothing specific is chosen. */
+/** "GPT-5.6 Sol · High", "⚡ GPT-6.1 Terra Ultra" (Fast, at the model's top level), or "Default" when nothing is chosen. */
 @Composable
 fun pickLabel(catalog: Catalog, pick: ModelPick): String {
     if (pick.isDefault) return stringResource(R.string.model_default)
-    val name = catalog.find(pick.provider, pick.model)?.name ?: pick.model
-    return if (pick.reasoning.isEmpty()) name else "$name · ${effortLabel(pick.reasoning)}"
+    val m = catalog.find(pick.provider, pick.model)
+    val name = (if (pick.fast) "⚡ " else "") + (m?.name ?: pick.model)
+    return when {
+        pick.reasoning.isEmpty() -> name
+        m != null && m.efforts.size > 1 && pick.reasoning == m.top -> "$name $ULTRA"
+        else -> "$name · ${effortLabel(pick.reasoning)}"
+    }
+}
+
+const val ULTRA = "Ultra"
+
+/** [label] with a trailing "Ultra" painted in the ultra gradient (the composer's model button). */
+fun ultraLabel(label: String): androidx.compose.ui.text.AnnotatedString = androidx.compose.ui.text.buildAnnotatedString {
+    if (label.endsWith(" $ULTRA")) {
+        append(label.removeSuffix(ULTRA))
+        withStyle(androidx.compose.ui.text.SpanStyle(brush = Brush.linearGradient(listOf(UltraViolet, UltraPurple)), fontWeight = FontWeight.Bold)) { append(ULTRA) }
+    } else append(label)
 }
 
 private val UltraPink = Color(0xFFF06BA8)
@@ -152,7 +168,8 @@ private fun LevelCard(catalog: Catalog, current: ModelPick, defaultSubtitle: Str
     val steps = listOf("") + EFFORT_ORDER.filter { model != null && it in model.efforts }
     val index = steps.indexOf(current.reasoning).coerceAtLeast(0)
     val level = steps[index]
-    val ultra = level == "max"
+    // the model's deepest level is "Ultra": it glows and sparkles
+    val ultra = model != null && steps.size > 2 && index == steps.lastIndex
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val tint by animateColorAsState(effortColor(level, muted), label = "level colour")
     val haptic = LocalHapticFeedback.current
@@ -164,15 +181,23 @@ private fun LevelCard(catalog: Catalog, current: ModelPick, defaultSubtitle: Str
     ) {
         Column(Modifier.padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // quickest: the lowest level this model has
-                IconButton(onClick = { if (steps.size > 1) onPick(current.copy(reasoning = steps[1])) }, enabled = steps.size > 1) {
-                    Icon(Icons.Rounded.Bolt, contentDescription = stringResource(R.string.model_fastest), tint = muted)
+                // Fast: the provider's priority tier, for the models that have one; lit while it is on
+                val canFast = model?.fast == true
+                IconButton(onClick = { if (canFast) onPick(current.copy(fast = !current.fast)) }, enabled = canFast) {
+                    Icon(
+                        Icons.Rounded.Bolt, contentDescription = stringResource(R.string.model_fast),
+                        tint = if (canFast && current.fast) Color(0xFFFFB020) else muted.copy(alpha = if (canFast) 1f else 0.3f),
+                    )
                 }
                 Column(
                     Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).clickable(onClick = onModels).padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    val title = if (current.isDefault) stringResource(R.string.model_default) else effortLabel(level)
+                    val title = when {
+                        current.isDefault -> stringResource(R.string.model_default)
+                        ultra -> ULTRA
+                        else -> effortLabel(level)
+                    } + if (current.fast && model?.fast == true) " · Fast" else ""
                     Text(
                         title,
                         style = if (ultra) MaterialTheme.typography.titleLarge.merge(TextStyle(brush = Brush.linearGradient(listOf(UltraViolet, UltraPurple))))

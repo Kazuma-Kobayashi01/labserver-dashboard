@@ -20,6 +20,7 @@ import com.labserver.lablink.data.Conversation
 import com.labserver.lablink.data.ConversationStore
 import com.labserver.lablink.data.titleFrom
 import com.labserver.lablink.data.ToolRun
+import com.labserver.lablink.data.ChatWire
 import com.labserver.lablink.data.DEFAULT_BOT_ID
 import com.labserver.lablink.data.Listing
 import com.labserver.lablink.data.ListingCache
@@ -38,6 +39,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -328,6 +330,79 @@ class ChatController(
             .copy(updated = System.currentTimeMillis())
         val list = index.upsert(c)
         _ui.update { if (it.bot.id == botId) it.copy(conversations = list) else it }
+        share(botId, convId)
+    }
+
+    // ---- chats shared with the other apps (phone, Mac) through the bot-manager
+
+    /** Sends this device's copy of a chat to the server (unless a reply is still coming in); the newest edit wins there. */
+    private fun share(botId: String, convId: String) {
+        if (!manager.available || convId in jobs) return
+        scope.launch {
+            val index = ConversationStore(dir, botId)
+            val c = index.load().firstOrNull { it.id == convId } ?: return@launch
+            val msgs = withContext(Dispatchers.IO) { index.messages(convId).load() }
+            if (msgs.isEmpty()) return@launch
+            manager.chatPut(prefs.profileOf(botId), convId, ChatWire.encode(c, msgs))
+        }
+    }
+
+    /**
+     * Brings the open bot's chats in line with the server: newer copies and deletions from another device come in, chats
+     * only this device has (or has newer) go up. A chat with a reply coming in is left alone until it is done.
+     */
+    suspend fun syncChats() {
+        if (!manager.available) return
+        // one at a time (the timer, a refresh and a bot switch can ask together)
+        syncLock.withLock { syncOnce() }
+    }
+
+    private val syncLock = kotlinx.coroutines.sync.Mutex()
+
+    /** Every bot's chats (the server keeps them all): the open bot first, so what is on screen is fresh soonest. */
+    private suspend fun syncOnce() {
+        val cur = _ui.value
+        for (bot in listOf(cur.bot) + cur.bots.filter { it.id != cur.bot.id }) syncBot(bot)
+    }
+
+    private suspend fun syncBot(bot: Bot) {
+        val profile = prefs.profileOf(bot.id)
+        val remote = (manager.chatList(profile) as? ManagerResult.Ok)?.value ?: return
+        val index = ConversationStore(dir, bot.id)
+        val local = index.load().associateBy { it.id }
+        var changed = false
+        var openChanged = false
+        for (r in remote) {
+            if (r.id in jobs) continue
+            val l = local[r.id]
+            if (r.deleted) {
+                if (l != null && l.updated <= r.updated) {
+                    index.delete(r.id); changed = true
+                    if (r.id == _ui.value.conversationId) openChanged = true
+                }
+                continue
+            }
+            if (l != null && r.updated <= l.updated) continue
+            val got = (manager.chatGet(profile, r.id) as? ManagerResult.Ok)?.value ?: continue
+            val (c, msgs) = try { ChatWire.decode(got) } catch (_: Exception) { continue }
+            withContext(Dispatchers.IO) { index.messages(c.id).save(msgs) }
+            index.upsert(c)
+            changed = true
+            if (r.id == _ui.value.conversationId) openChanged = true
+        }
+        val byId = remote.associateBy { it.id }
+        for (l in index.load()) {
+            val r = byId[l.id]
+            if (r == null || (!r.deleted && l.updated > r.updated)) share(bot.id, l.id)
+        }
+        if (!changed || _ui.value.bot.id != bot.id) return
+        val list = index.load()
+        val cur = _ui.value
+        _ui.update { it.copy(conversations = list) }
+        if (openChanged && cur.conversationId !in jobs) {
+            if (list.any { it.id == cur.conversationId }) _ui.update { it.copy(messages = store.load()) }
+            else open(bot, list.firstOrNull()?.id ?: UUID.randomUUID().toString())
+        }
     }
 
     /** Saves the open conversation after the user changed it (retracted or regenerated). */
@@ -406,14 +481,18 @@ class ChatController(
     fun renameConversation(id: String, title: String) {
         val t = title.trim()
         val c = _ui.value.conversations.firstOrNull { it.id == id } ?: return
-        val list = convs.upsert(if (t.isEmpty()) c.copy(renamed = false, title = titleFrom(convs.messages(id).load())) else c.copy(title = t, renamed = true))
+        val named = if (t.isEmpty()) c.copy(renamed = false, title = titleFrom(convs.messages(id).load())) else c.copy(title = t, renamed = true)
+        // the edit time moves, so the other devices take the new name
+        val list = convs.upsert(named.copy(updated = System.currentTimeMillis()))
         _ui.update { it.copy(conversations = list) }
+        share(_ui.value.bot.id, id)
     }
 
     fun setPinned(id: String, pinned: Boolean) {
         val c = _ui.value.conversations.firstOrNull { it.id == id } ?: return
-        val list = convs.upsert(c.copy(pinned = pinned))
+        val list = convs.upsert(c.copy(pinned = pinned, updated = System.currentTimeMillis()))
         _ui.update { it.copy(conversations = list) }
+        share(_ui.value.bot.id, id)
     }
 
     /** Deletes a conversation for good (what was sent stays in the library). */
@@ -423,6 +502,8 @@ class ChatController(
             jobs[id]?.join()
             val list = convs.delete(id)
             _ui.update { it.copy(conversations = list) }
+            // the other devices drop it too
+            if (manager.available) manager.chatDelete(prefs.profileOf(_ui.value.bot.id), id)
             if (_ui.value.conversationId == id) open(_ui.value.bot, list.firstOrNull()?.id ?: UUID.randomUUID().toString())
         }
     }
@@ -593,6 +674,7 @@ class ChatController(
                     catalogCache.save(m.value)
                     _ui.update { it.copy(catalog = m.value) }
                 }
+                syncChats()
             }
             is ManagerResult.Fail -> _ui.update { it.copy(syncing = false, syncError = r.kind) }
         }

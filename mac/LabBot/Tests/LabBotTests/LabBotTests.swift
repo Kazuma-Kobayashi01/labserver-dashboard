@@ -79,3 +79,60 @@ final class ProtocolTests: XCTestCase {
         XCTAssertTrue((p[0]["content"] as? String)?.contains("[an image was attached here: p0.png]") == true)
     }
 }
+
+final class SyncTests: XCTestCase {
+    func testAChatFromThePhoneReads() {
+        // as the phone writes it: every field, Long times, attachment kinds in lower case, no local path
+        let phone = #"{"conversation":{"id":"c1","title":"状态","created":1,"updated":1700000000123,"pinned":true,"renamed":false},"messages":[{"role":"user","content":"hi","reasoning":"","id":"m1","time":10,"attachments":[{"id":"a1","name":"p.png","mime":"image/png","size":3,"kind":"image","remotePath":""}],"failed":false,"thinkingMs":0,"tools":[]},{"role":"assistant","content":"ok","reasoning":"hmm","id":"m2","time":11,"attachments":[],"failed":false,"thinkingMs":900,"tools":[{"id":"t1","tool":"terminal","label":"","command":"ls","output":"x","exitCode":0,"error":null,"durationMs":40,"done":true,"at":2}]}]}"#
+        guard let (c, m) = ChatWire.decode(Data(phone.utf8)) else { return XCTFail("did not read") }
+        XCTAssertEqual(c.title, "状态")
+        XCTAssertTrue(c.pinned)
+        XCTAssertEqual(ChatWire.ms(c.updated), 1700000000123)
+        XCTAssertEqual(m[0].attachments[0].kind, .image)
+        XCTAssertEqual(m[0].attachments[0].local, "")
+        XCTAssertEqual(m[1].tools[0].command, "ls")
+        XCTAssertEqual(m[1].thinkingMs, 900)
+    }
+
+    func testWhatTheMacSendsHasNoLocalPaths() throws {
+        let c = Conversation(id: "x", title: "t", created: Date(timeIntervalSince1970: 1), updated: Date(timeIntervalSince1970: 2))
+        let m = [ChatMessage(role: "user", content: "hi", attachments: [Attachment(name: "a.txt", mime: "text/plain", size: 1, kind: .text, local: "/Users/me/a.txt")])]
+        let data = try XCTUnwrap(ChatWire.encode(c, m))
+        let o = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual((o["conversation"] as? [String: Any])?["updated"] as? Int, 2000)
+        let att = ((o["messages"] as? [[String: Any]])?.first?["attachments"] as? [[String: Any]])?.first
+        XCTAssertNil(att?["local"])
+        XCTAssertEqual(att?["kind"] as? String, "text")
+        let (back, msgs) = try XCTUnwrap(ChatWire.decode(data))
+        XCTAssertEqual(back.id, "x")
+        XCTAssertEqual(msgs[0].content, "hi")
+    }
+}
+
+final class ModelTests: XCTestCase {
+    private func catalog() throws -> Catalog {
+        let json = #"{"providers":[{"id":"openai-codex","name":"ChatGPT","models":[{"id":"t","name":"GPT-6.1 Terra","efforts":["low","high","xhigh"],"fast":true}]},{"id":"deepseek","name":"DeepSeek","models":[{"id":"f","name":"Flash","efforts":["none","high"]}]}]}"#
+        return try JSONDecoder().decode(Catalog.self, from: Data(json.utf8))
+    }
+
+    func testFastComesFromTheServer() throws {
+        let c = try catalog()
+        XCTAssertTrue(c.providers[0].models[0].fast)
+        XCTAssertFalse(c.providers[1].models[0].fast)   // an older server does not say
+        XCTAssertEqual(c.providers[0].models[0].top, "xhigh")
+    }
+
+    func testTheLabelNamesUltraAndFast() throws {
+        let c = try catalog()
+        XCTAssertEqual(c.label(ModelPick(provider: "openai-codex", model: "t", reasoning: "xhigh", fast: true)), "⚡ GPT-6.1 Terra Ultra")
+        XCTAssertEqual(c.label(ModelPick(provider: "openai-codex", model: "t", reasoning: "high")), "GPT-6.1 Terra · \(L.t("effort.high"))")
+        // Fast only shows for models that have it
+        XCTAssertEqual(c.label(ModelPick(provider: "deepseek", model: "f", reasoning: "high", fast: true)), "Flash Ultra")
+        XCTAssertEqual(c.label(ModelPick()), L.t("model.default"))
+    }
+
+    func testAnOlderSavedPickStillReads() throws {
+        let p = try JSONDecoder().decode(ModelPick.self, from: Data(#"{"provider":"a","model":"b","reasoning":"high"}"#.utf8))
+        XCTAssertEqual(p, ModelPick(provider: "a", model: "b", reasoning: "high", fast: false))
+    }
+}

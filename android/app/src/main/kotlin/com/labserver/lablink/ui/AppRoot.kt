@@ -77,6 +77,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.labserver.lablink.R
 import com.labserver.lablink.data.Bot
 import com.labserver.lablink.data.isSandbox
@@ -119,6 +120,18 @@ fun AppRoot() {
     // the sandbox bots live on the server: read them when the tunnel comes up and whenever the drawer opens
     LaunchedEffect(port) { if (app.chat.managerAvailable()) app.chat.refresh() }
     LaunchedEffect(drawer.isOpen) { if (drawer.isOpen && app.chat.managerAvailable()) app.chat.refresh() }
+    // chats continued on another device (the Mac) show up here: on switching bots, and every 20 s while the app is open
+    val openBot = app.chat.ui.collectAsStateWithLifecycle().value.bot.id
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(port, openBot) {
+        // only while the app is on screen: nothing runs in the background for this
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            while (true) {
+                if (app.chat.managerAvailable()) app.chat.syncChats()
+                kotlinx.coroutines.delay(20_000)
+            }
+        }
+    }
 
     // WebViews in this app go through the tunnel's loopback proxy whenever it is up (and nowhere otherwise)
     LaunchedEffect(port) { WebProxy.apply(ctx, port) }

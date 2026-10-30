@@ -48,4 +48,24 @@ class BotClientPickTest {
         BotClient.applyPick(auto, sandbox = false, pick = ModelPick("deepseek", "deepseek-flash", ""))
         assertFalse(auto.has("model_options"))
     }
+
+    @Test
+    fun fastRidesAlongForBothRoutes() {
+        val viaManager = body()
+        BotClient.applyPick(viaManager, sandbox = true, pick = ModelPick("openai-codex", "gpt-6.1-terra", "xhigh", fast = true))
+        assertTrue(viaManager.getBoolean("fast"))
+        val direct = body()
+        BotClient.applyPick(direct, sandbox = false, pick = ModelPick("openai-codex", "gpt-6.1-terra", "xhigh", fast = true))
+        assertTrue(direct.getJSONObject("model_options").getBoolean("fast"))
+        assertEquals("xhigh", direct.getJSONObject("model_options").getJSONObject("reasoning").getString("effort"))
+        // Fast alone (no level) still reaches Hermes
+        val only = body()
+        BotClient.applyPick(only, sandbox = false, pick = ModelPick("openai-codex", "gpt-6.1-terra", fast = true))
+        assertFalse(only.getJSONObject("model_options").has("reasoning"))
+        assertTrue(only.getJSONObject("model_options").getBoolean("fast"))
+        // off by default
+        val plain = body()
+        BotClient.applyPick(plain, sandbox = true, pick = ModelPick("openai-codex", "gpt-6.1-terra", "high"))
+        assertFalse(plain.has("fast"))
+    }
 }

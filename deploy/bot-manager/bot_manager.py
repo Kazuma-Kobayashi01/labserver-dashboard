@@ -30,6 +30,8 @@ log = logging.getLogger("bot-manager")
 ID_RE = re.compile(r"^b[0-9a-f]{10}$")
 MAX_BODY = 1024 * 1024                 # JSON bodies of the management calls
 MAX_CHAT_BODY = 24 * 1024 * 1024       # a chat may carry a few images as data URLs
+MAX_SYNCED_CHAT = 8 * 1024 * 1024      # one conversation kept for the apps to share (text, thinking, command output)
+CONV_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 MAX_UPLOAD = 25 * 1024 * 1024          # one file for the bot's sandbox
 MAX_IMAGE_URL = 8 * 1024 * 1024
 MAX_IMAGES = 8
@@ -106,6 +108,10 @@ class Config:
 EFFORTS = ("none", "low", "medium", "high", "xhigh")
 
 
+# providers whose models take Hermes' fast mode (model_options.fast -> the "priority" service tier; ChatGPT calls it Fast)
+FAST_PROVIDERS = {"openai-codex", "anthropic"}
+
+
 class Catalog:
     """The models and thinking levels that really work, as written by probe_models.py (re-read when the file changes)."""
 
@@ -124,6 +130,15 @@ class Catalog:
         except (OSError, ValueError):
             pass
         return self._data
+
+    def offered(self):
+        """What the apps are shown: the catalog, each model marked with whether it has a fast mode."""
+        d = self.data()
+        return {**d, "providers": [{**p, "models": [{**m, "fast": p["id"] in FAST_PROVIDERS} for m in p.get("models", [])]}
+                                   for p in d.get("providers", [])]}
+
+    def fast_ok(self, provider, model):
+        return provider in FAST_PROVIDERS and self.model(provider, model) is not None
 
     def model(self, provider, model):
         for p in self.data().get("providers", []):
@@ -334,6 +349,104 @@ class Manager:
 
     def trash_dir(self, bid):
         return os.path.join(self.cfg.trash, bid)
+
+    def chat_dir(self, bot):
+        return os.path.join(self.cfg.state_dir, "chats", bot)
+
+    # -- conversations the apps share (phone, Mac): one file per chat, the newest edit wins, deletions are remembered
+    @staticmethod
+    def _clean_conversation(c, cid):
+        if not isinstance(c, dict):
+            raise ApiError(400, "bad_request", "conversation must be an object")
+        out = {"id": cid}
+        for k in ("title",):
+            v = c.get(k, "")
+            out[k] = v[:200] if isinstance(v, str) else ""
+        for k in ("created", "updated"):
+            v = c.get(k)
+            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+                raise ApiError(400, "bad_request", f"{k} must be a time in milliseconds")
+            out[k] = v
+        for k in ("pinned", "renamed"):
+            out[k] = c.get(k) is True
+        return out
+
+    def chat_list(self, bot):
+        """Every chat of [bot] the apps shared (deleted ones as tombstones), newest first."""
+        self.app_bot_home(bot)
+        d = self.chat_dir(bot)
+        out = []
+        for name in os.listdir(d) if os.path.isdir(d) else []:
+            if not name.endswith(".meta.json"):
+                continue
+            try:
+                with open(os.path.join(d, name)) as f:
+                    out.append(json.load(f))
+            except (OSError, ValueError):
+                continue
+        out.sort(key=lambda c: c.get("updated", 0), reverse=True)
+        return {"conversations": out}
+
+    def chat_get(self, bot, cid):
+        self.app_bot_home(bot)
+        if not CONV_ID_RE.match(cid):
+            raise ApiError(404, "not_found", "no such chat")
+        base = os.path.join(self.chat_dir(bot), cid)
+        try:
+            with open(base + ".meta.json") as f:
+                meta = json.load(f)
+            if meta.get("deleted"):
+                return {"conversation": meta, "messages": []}
+            with open(base + ".json") as f:
+                return {"conversation": meta, "messages": json.load(f)}
+        except (OSError, ValueError):
+            raise ApiError(404, "not_found", "no such chat")
+
+    def chat_put(self, bot, cid, body):
+        """Keeps [body] ({conversation, messages}) unless the server has a newer edit (or deletion) of the same chat; says
+        which one it kept."""
+        self.app_bot_home(bot)
+        if not CONV_ID_RE.match(cid):
+            raise ApiError(400, "bad_request", "bad chat id")
+        meta = self._clean_conversation(body.get("conversation"), cid)
+        messages = body.get("messages")
+        if not isinstance(messages, list) or not all(isinstance(m, dict) for m in messages):
+            raise ApiError(400, "bad_request", "messages must be a list of objects")
+        d = self.chat_dir(bot)
+        os.makedirs(d, exist_ok=True)
+        base = os.path.join(d, cid)
+        with self.reg.lock:
+            try:
+                with open(base + ".meta.json") as f:
+                    old = json.load(f)
+            except (OSError, ValueError):
+                old = None
+            if old and old.get("updated", 0) > meta["updated"]:
+                return {"stored": False, "conversation": old}
+            for path, data in ((base + ".json", messages), (base + ".meta.json", meta)):
+                tmp = path + ".tmp"
+                with open(tmp, "w") as f:
+                    json.dump(data, f, ensure_ascii=False)
+                os.replace(tmp, path)
+        return {"stored": True, "conversation": meta}
+
+    def chat_delete(self, bot, cid):
+        """Forgets a chat for every app: its messages go, a small tombstone stays so the others delete their copy too."""
+        self.app_bot_home(bot)
+        if not CONV_ID_RE.match(cid):
+            raise ApiError(400, "bad_request", "bad chat id")
+        d = self.chat_dir(bot)
+        os.makedirs(d, exist_ok=True)
+        base = os.path.join(d, cid)
+        meta = {"id": cid, "deleted": True, "updated": int(time.time() * 1000)}
+        with self.reg.lock:
+            try:
+                os.remove(base + ".json")
+            except OSError:
+                pass
+            with open(base + ".meta.json", "w") as f:
+                json.dump(meta, f)
+        return {"ok": True, "conversation": meta}
 
     def key_of(self, bid):
         return read_env_value(os.path.join(self.profile_dir(bid), ".env"), "API_SERVER_KEY")
@@ -747,6 +860,7 @@ class Manager:
                 raise ApiError(500, "purge_failed", "could not remove the bot completely; it is still in the trash") from e
             self.reg.bots.pop(bid, None)
             self.reg.save()
+            shutil.rmtree(self.chat_dir(bid), ignore_errors=True)
             log.info("purged %s", bid)
 
     # -- janitor
@@ -961,6 +1075,7 @@ def make_handler(mgr):
     cfg = mgr.cfg
     bot_re = re.compile(r"^/m/v1/bots/([a-z0-9][a-z0-9-]{0,40})(/restore|/chat/completions|/files|/shell|/runs/([A-Za-z0-9_.:-]{1,120})/approval)?$")
     open_paths = ("/m/v1/bots", "/m/v1/models", "/m/v1/media")
+    chats_re = re.compile(r"^/m/v1/chats/([a-z0-9][a-z0-9-]{0,40})(?:/([A-Za-z0-9-]{1,64}))?$")
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "bot-manager"
@@ -1006,7 +1121,7 @@ def make_handler(mgr):
                 path = urlsplit(self.path).path
                 if method == "GET" and path == "/m/v1/health":
                     return self._json(200, {"ok": True})
-                if path not in open_paths and not bot_re.match(path):
+                if path not in open_paths and not bot_re.match(path) and not chats_re.match(path):
                     raise ApiError(404, "not_found", "not found")
                 self._authed()
                 if path == "/m/v1/media":
@@ -1024,10 +1139,29 @@ def make_handler(mgr):
                     with open(real, "rb") as f:
                         shutil.copyfileobj(f, self.wfile, 256 * 1024)
                     return
+                chat = chats_re.match(path)
+                if chat:
+                    bot, cid = chat.groups()
+                    if not ID_RE.match(bot) and bot not in cfg.local_profiles:
+                        raise ApiError(404, "not_found", "not found")
+                    if cid is None:
+                        if method != "GET":
+                            raise ApiError(405, "method_not_allowed", "method not allowed")
+                        return self._json(200, mgr.chat_list(bot))
+                    if method == "GET":
+                        return self._json(200, mgr.chat_get(bot, cid))
+                    if method == "PUT":
+                        n = int(self.headers.get("Content-Length") or 0)
+                        if n > MAX_SYNCED_CHAT:
+                            raise ApiError(413, "too_large", "chat too large to share")
+                        return self._json(200, mgr.chat_put(bot, cid, self._body(MAX_SYNCED_CHAT)))
+                    if method == "DELETE":
+                        return self._json(200, mgr.chat_delete(bot, cid))
+                    raise ApiError(405, "method_not_allowed", "method not allowed")
                 if path == "/m/v1/models":
                     if method != "GET":
                         raise ApiError(405, "method_not_allowed", "method not allowed")
-                    return self._json(200, mgr.catalog.data())
+                    return self._json(200, mgr.catalog.offered())
                 if path == "/m/v1/bots":
                     if method == "GET":
                         return self._json(200, mgr.list_bots())
@@ -1070,6 +1204,7 @@ def make_handler(mgr):
         do_POST = lambda self: self._route("POST")
         do_PATCH = lambda self: self._route("PATCH")
         do_DELETE = lambda self: self._route("DELETE")
+        do_PUT = lambda self: self._route("PUT")
 
         # -- terminal
         def _shell(self, bid):
@@ -1200,7 +1335,10 @@ def make_handler(mgr):
             mgr.catalog.check(provider, model, reasoning)
             if provider and model:
                 payload.update(provider=provider, model=model)
-                opts = upstream_options(reasoning)
+                opts = upstream_options(reasoning) or {}
+                # Fast: the provider's priority tier, for the models that have one (asked per request by the app)
+                if body.get("fast") is True and mgr.catalog.fast_ok(provider, model):
+                    opts["fast"] = True
                 if opts:
                     payload["model_options"] = opts
             key = mgr.key_of(bid)

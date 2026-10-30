@@ -8,6 +8,7 @@ struct ChatView: View {
     @Binding var input: String
     var openTerminal: () -> Void
     @State private var awayFromEnd = false
+    @State private var showPicker = false
 
     var body: some View {
         let detail = app.settings.detail
@@ -57,11 +58,23 @@ struct ChatView: View {
                     .onChange(of: app.approval?.id) { withAnimation(.snappy) { proxy.scrollTo("end", anchor: .bottom) } }
                 }
             }
-            VStack(spacing: 8) {
-                if let e = app.error { ErrorStrip(error: e) { app.error = nil } }
-                Composer(input: $input).frame(maxWidth: 780)
+            // a click anywhere else closes the model card
+            if showPicker {
+                Color.black.opacity(0.001).ignoresSafeArea()
+                    .onTapGesture { withAnimation(.spring(duration: 0.3, bounce: 0.2)) { showPicker = false } }
             }
+            VStack(alignment: .leading, spacing: 8) {
+                if showPicker {
+                    ModelPickerCard()
+                        .padding(.leading, 40)
+                        .transition(.scale(scale: 0.88, anchor: .bottomLeading).combined(with: .opacity))
+                }
+                if let e = app.error { ErrorStrip(error: e) { app.error = nil } }
+                Composer(input: $input, showPicker: $showPicker).frame(maxWidth: 780)
+            }
+            .frame(maxWidth: 780)
             .padding(.horizontal, 28).padding(.bottom, 18)
+            .onExitCommand { if showPicker { withAnimation(.spring(duration: 0.3, bounce: 0.2)) { showPicker = false } } }
         }
         .environment(\.chatDetail, detail)
         .tint(accentInk(app.bot.tint))

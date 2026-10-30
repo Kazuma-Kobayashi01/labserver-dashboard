@@ -52,6 +52,21 @@ class ManagerClient(private val ep: ManagerEndpoint) {
 
     suspend fun trash(id: String): ManagerResult<Unit> = call("DELETE", "/bots/$id", null) { }
 
+    // ---- the chats the apps share (phone, Mac)
+
+    suspend fun chatList(profile: String): ManagerResult<List<com.labserver.lablink.data.RemoteChat>> = call("GET", "/chats/$profile", null) { text ->
+        val a = JSONObject(text).optJSONArray("conversations") ?: org.json.JSONArray()
+        (0 until a.length()).map { i -> a.getJSONObject(i).let { com.labserver.lablink.data.RemoteChat(it.getString("id"), it.optLong("updated"), it.optBoolean("deleted")) } }
+    }
+
+    suspend fun chatGet(profile: String, id: String): ManagerResult<JSONObject> = call("GET", "/chats/$profile/$id", null) { JSONObject(it) }
+
+    /** Shares a chat; the result says whether the server kept it (false: it holds a newer edit). */
+    suspend fun chatPut(profile: String, id: String, body: JSONObject): ManagerResult<Boolean> =
+        call("PUT", "/chats/$profile/$id", body) { JSONObject(it).optBoolean("stored") }
+
+    suspend fun chatDelete(profile: String, id: String): ManagerResult<Unit> = call("DELETE", "/chats/$profile/$id", null) { }
+
     suspend fun restore(id: String): ManagerResult<Bot> = call("POST", "/bots/$id/restore", JSONObject()) { parseBot(JSONObject(it)) }
 
     /** Sends [file] to the bot's sandbox; the result is the path the sandbox sees it at. */
@@ -172,7 +187,7 @@ class ManagerClient(private val ep: ManagerEndpoint) {
                     val mo = models.getJSONObject(j)
                     val efforts = mo.optJSONArray("efforts")
                     ModelInfo(mo.getString("id"), mo.optString("name", mo.getString("id")),
-                        (0 until (efforts?.length() ?: 0)).map { efforts!!.getString(it) })
+                        (0 until (efforts?.length() ?: 0)).map { efforts!!.getString(it) }, fast = mo.optBoolean("fast"))
                 })
             })
         }
